@@ -3,6 +3,8 @@
  * Persiste las postulaciones en localStorage y permite sincronizar su estado con la API de Datos Abiertos.
  */
 
+import { resolveSecopUrl } from './api';
+
 export type SubmissionStatus = 
   | 'EN_EVALUACION'
   | 'INFORME_PRELIMINAR'
@@ -63,8 +65,6 @@ export interface ApplicationRecord {
 }
 
 const STORAGE_KEY = 'licitia_applications_history_v1';
-
-import { resolveSecopUrl } from './api';
 
 /**
  * Registros iniciales con procesos reales de SECOP I y SECOP II
