@@ -56,22 +56,38 @@ class CompatibilityEngine:
 
         # 2. EVALUACIÓN DE EXPERIENCIA (UNSPSC & SMMLV)
         experience_score = 100.0
-        required_unspsc = set(tender_requirements.get("required_unspsc", []))
+        required_unspsc = [str(u).strip() for u in tender_requirements.get("required_unspsc", []) if str(u).strip()]
         req_smmlv = tender_requirements.get("min_experience_smmlv", 0)
         
         matched_smmlv = 0.0
-        company_unspsc_set = set()
+        company_unspsc_list = []
         
         for exp in company_experiences:
             matched_smmlv += exp.get("value_smmlv", 0)
-            company_unspsc_set.update(exp.get("unspsc_codes", []))
+            for c in exp.get("unspsc_codes", []):
+                clean_c = str(c).strip()
+                if clean_c:
+                    company_unspsc_list.append(clean_c)
 
-        if required_unspsc and not company_unspsc_set.intersection(required_unspsc):
-            experience_score -= 50.0
-            reasons.append(f"✗ No se registran contratos RUP en los códigos UNSPSC exigidos: {list(required_unspsc)}.")
+        unspsc_matched = False
+        if not required_unspsc:
+            unspsc_matched = True
+        else:
+            for req in required_unspsc:
+                for comp in company_unspsc_list:
+                    # Coincidencia exacta, por clase (6 dígitos) o familia (4 dígitos)
+                    if comp == req or (len(comp) >= 6 and len(req) >= 6 and comp[:6] == req[:6]) or (len(comp) >= 4 and len(req) >= 4 and comp[:4] == req[:4]):
+                        unspsc_matched = True
+                        break
+                if unspsc_matched:
+                    break
+
+        if not unspsc_matched:
+            experience_score -= 40.0
+            reasons.append(f"✗ No se registran contratos RUP en la clasificación UNSPSC exigida: {required_unspsc}.")
             risks.append("Falta experiencia acreditada en la clasificación UNSPSC específica.")
         else:
-            reasons.append("✓ Clasificación UNSPSC compatible acreditada en RUP.")
+            reasons.append("✓ Clasificación UNSPSC compatible acreditada en RUP (Decreto 1082/2015).")
 
         if matched_smmlv < req_smmlv:
             experience_score -= 30.0

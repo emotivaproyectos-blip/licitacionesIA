@@ -152,16 +152,6 @@ class SECOPDatosAbiertosClient:
 
             val_smmlv = round(val_cop / SMMLV_2026, 1)
 
-            raw_unspsc = item.get("codigo_principal_de_categoria", "")
-            unspsc_clean = re.sub(r'[^0-9]', '', str(raw_unspsc))
-            if not unspsc_clean or len(unspsc_clean) < 6:
-                unspsc_clean = "80101500"
-            else:
-                unspsc_clean = unspsc_clean[:8]
-
-            process_url = resolve_secop_url("SECOP_II", item.get("urlproceso"), process_num, secop_id)
-
-            entity = item.get("entidad") or item.get("nombre_de_la_entidad") or "Entidad Pública Colombiana"
             title = (
                 item.get("nombre_del_procedimiento") 
                 or item.get("descripci_n_del_procedimiento") 
@@ -169,6 +159,24 @@ class SECOPDatosAbiertosClient:
                 or f"Contratación pública {process_num}"
             )
             desc = item.get("descripci_n_del_procedimiento") or item.get("descripcion_del_procedimiento") or title
+
+            raw_unspsc = str(item.get("codigo_principal_de_categoria", "") or "")
+            raw_unspsc = re.sub(r'^V\d+\.?', '', raw_unspsc, flags=re.IGNORECASE)
+            unspsc_clean = re.sub(r'[^0-9]', '', raw_unspsc)
+            if not unspsc_clean or len(unspsc_clean) < 6:
+                text_low = (title + " " + desc).lower()
+                if "software" in text_low or "tecnolog" in text_low or "sistemas" in text_low:
+                    unspsc_clean = "81111500" if "licencia" not in text_low else "43230000"
+                elif "consultor" in text_low or "interventor" in text_low:
+                    unspsc_clean = "80101500"
+                elif "obra" in text_low or "construc" in text_low:
+                    unspsc_clean = "72121100"
+                else:
+                    unspsc_clean = "80101500"
+            else:
+                unspsc_clean = unspsc_clean[:8]
+
+            process_url = resolve_secop_url("SECOP_II", item.get("urlproceso"), process_num, secop_id)
 
             status_desc = item.get("fase") or item.get("estado_del_procedimiento") or "Presentación de ofertas"
 

@@ -446,6 +446,119 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     loadOfficialTenders(searchKey, true, platformFilter);
   };
 
+  // HELPER PARA EVALUACIÓN JERÁRQUICA UNSPSC (CLASE, FAMILIA, SEGMENTO Y AFINIDAD SECTORIAL)
+  const evaluateUnspscCompatibility = useCallback((
+    companyCodes: string[],
+    requiredCodes: string[],
+    tenderTitle: string = '',
+    tenderDesc: string = ''
+  ) => {
+    const cleanNum = (c: string) => String(c || '').replace(/^V\d+\.?/i, '').replace(/[^0-9]/g, '').trim();
+    const normCompany = (companyCodes || []).map(cleanNum).filter(Boolean);
+    const normReq = (requiredCodes || []).map(cleanNum).filter(Boolean);
+    const targetReq = normReq.length > 0 ? normReq : ['80101500'];
+
+    const matchedCodes: string[] = [];
+    const missingCodes: string[] = [];
+    let matchDescription = '';
+    let matchLevel: 'exact' | 'class' | 'family' | 'segment' | 'semantic' | 'none' = 'none';
+
+    for (const req of targetReq) {
+      let matched = false;
+
+      // 1. Exacto
+      for (const comp of normCompany) {
+        if (comp === req) {
+          matched = true;
+          matchLevel = 'exact';
+          matchDescription = `Coincidencia exacta en código UNSPSC (${req})`;
+          matchedCodes.push(req);
+          break;
+        }
+      }
+      if (matched) continue;
+
+      // 2. Clase RUP (primeros 6 dígitos - estándar Decreto 1082/2015)
+      for (const comp of normCompany) {
+        if (comp.length >= 6 && req.length >= 6 && comp.slice(0, 6) === req.slice(0, 6)) {
+          matched = true;
+          matchLevel = 'class';
+          matchDescription = `Coincidencia de Clase RUP (${comp.slice(0, 6)}xx con ${req})`;
+          matchedCodes.push(req);
+          break;
+        }
+      }
+      if (matched) continue;
+
+      // 3. Familia RUP (primeros 4 dígitos - estándar Colombia Compra Eficiente)
+      for (const comp of normCompany) {
+        if (comp.length >= 4 && req.length >= 4 && comp.slice(0, 4) === req.slice(0, 4)) {
+          matched = true;
+          matchLevel = 'family';
+          matchDescription = `Coincidencia de Familia RUP (${comp.slice(0, 4)}xxxx con ${req})`;
+          matchedCodes.push(req);
+          break;
+        }
+      }
+      if (matched) continue;
+
+      // 4. Segmento (primeros 2 dígitos)
+      for (const comp of normCompany) {
+        if (comp.length >= 2 && req.length >= 2 && comp.slice(0, 2) === req.slice(0, 2)) {
+          matched = true;
+          matchLevel = 'segment';
+          matchDescription = `Coincidencia de Segmento (${comp.slice(0, 2)}xxxxxx con ${req})`;
+          matchedCodes.push(req);
+          break;
+        }
+      }
+      if (matched) continue;
+
+      // 5. Inferencia semántica por afinidad sectorial
+      const context = `${tenderTitle} ${tenderDesc}`.toLowerCase();
+      const hasTechAffinity = normCompany.some(c => c.startsWith('8111') || c.startsWith('4323') || c.startsWith('8010'));
+      const isTechTender = context.includes('software') || context.includes('plataforma') || context.includes('tecnolog') || context.includes('sistemas') || context.includes('consultor') || context.includes('interventor') || context.includes('informát') || context.includes('ciberseguridad');
+
+      if (hasTechAffinity && isTechTender) {
+        matched = true;
+        matchLevel = 'semantic';
+        matchDescription = `Afinidad sectorial tecnológica con el objeto contractual`;
+        matchedCodes.push(req);
+        continue;
+      }
+
+      missingCodes.push(req);
+    }
+
+    const passes = matchedCodes.length > 0;
+    let scoreDeduction = 0;
+    let reasonText = '';
+
+    if (passes) {
+      if (matchLevel === 'exact' || matchLevel === 'class') {
+        reasonText = `Acredita experiencia en clasificación UNSPSC requerida (${matchedCodes.join(', ')}).`;
+        scoreDeduction = 0;
+      } else if (matchLevel === 'family' || matchLevel === 'semantic') {
+        reasonText = `Acredita experiencia en clasificación afín (${matchDescription}).`;
+        scoreDeduction = 5;
+      } else {
+        reasonText = `Acredita afinidad en segmento general (${matchDescription}).`;
+        scoreDeduction = 10;
+      }
+    } else {
+      scoreDeduction = 20;
+      reasonText = `No registras contratos en la clasificación UNSPSC requerida (${missingCodes.join(', ')}).`;
+    }
+
+    return {
+      passes,
+      scoreDeduction,
+      matchedCodes,
+      missingCodes,
+      reasonText
+    };
+  }, []);
+
   // MOTOR DE MATCHING EN TIEMPO REAL CON PROCESOS REALES Y PERFIL RUP
   useEffect(() => {
     const liquidityRatio = company.current_liabilities > 0 
@@ -466,13 +579,12 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       const debtPasses = debtRatio <= maxDebt;
       const experiencePasses = company.smmlv_experience >= minSmmlv;
       
-      const matchedUnspsc = reqUnspsc.filter(code => 
-        company.unspsc_codes.some(c => c.startsWith(code) || code.startsWith(c))
+      const unspscEval = evaluateUnspscCompatibility(
+        company.unspsc_codes,
+        reqUnspsc,
+        t.title,
+        t.description
       );
-      const missingUnspsc = reqUnspsc.filter(code => 
-        !company.unspsc_codes.some(c => c.startsWith(code) || code.startsWith(c))
-      );
-      const unspscPasses = matchedUnspsc.length > 0;
 
       let score = 100;
       const reasons: string[] = [];
@@ -506,15 +618,16 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         risks.push(`Falta de experiencia cuantificada en SMMLV para esta cuantía.`);
       }
 
-      if (unspscPasses) {
-        reasons.push(`Acredita experiencia en clasificación UNSPSC requerida: ${matchedUnspsc.join(', ')}.`);
+      if (unspscEval.passes) {
+        reasons.push(unspscEval.reasonText);
+        score -= unspscEval.scoreDeduction;
       } else {
         score -= 20;
-        missing_requirements.push(`Códigos UNSPSC en RUP: No registras la clasificación ${missingUnspsc.join(', ')} requerida para este objeto contractual.`);
+        missing_requirements.push(`Códigos UNSPSC en RUP: No registras la clasificación ${unspscEval.missingCodes.join(', ')} requerida para este objeto contractual.`);
         risks.push(`Sin clasificación UNSPSC coincidente en el certificado RUP.`);
       }
 
-      score = Math.max(0, Math.min(100, score));
+      score = Math.max(0, Math.min(100, Math.round(score)));
 
       let verdict: 'RECOMMENDED' | 'RISKY' | 'NOT_RECOMMENDED' = 'RECOMMENDED';
       let executive_summary = `La empresa ${company.name} cumple satisfactoriamente el 100% de los requisitos de habilitación para esta convocatoria abierta de ${t.source_platform.replace('_', ' ')}.`;
@@ -553,9 +666,9 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         experience_compliance: {
           smmlv_accumulated: company.smmlv_experience,
           smmlv_required: minSmmlv,
-          unspsc_matched: matchedUnspsc,
-          unspsc_missing: missingUnspsc,
-          passes: experiencePasses,
+          unspsc_matched: unspscEval.matchedCodes,
+          unspsc_missing: unspscEval.missingCodes,
+          passes: experiencePasses && unspscEval.passes,
           smmlv_gap: Math.max(0, minSmmlv - company.smmlv_experience)
         },
         executive_summary,
@@ -592,7 +705,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       setSelectedTender(null);
     }
 
-  }, [company, rawTenders]);
+  }, [company, rawTenders, evaluateUnspscCompatibility]);
 
   const handleSelectTender = (tender: EvaluatedTender) => {
     const check = canEvaluateTender(currentPlanId, tender.id);
@@ -620,7 +733,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
 
   const handleSaveCompany = (e: React.FormEvent) => {
     e.preventDefault();
-    setCompany(formCompany);
+    const cleanUnspsc = (formCompany.unspsc_codes || [])
+      .map(c => String(c || '').replace(/^V\d+\.?/i, '').replace(/[^0-9]/g, '').trim())
+      .filter(Boolean);
+    const cleaned = {
+      ...formCompany,
+      unspsc_codes: cleanUnspsc.length > 0 ? cleanUnspsc : ['80101500', '81111500', '43230000']
+    };
+    setCompany(cleaned);
+    setFormCompany(cleaned);
     setShowCompanyModal(false);
   };
 
