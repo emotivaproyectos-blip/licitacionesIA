@@ -15,6 +15,7 @@ import {
   Layers,
   Building2,
   LogIn,
+  LogOut,
   Sun,
   Moon,
   Lock,
@@ -32,9 +33,18 @@ interface LandingPageProps {
   onOpenAuth: (mode?: 'login' | 'register') => void;
   darkMode?: boolean;
   onToggleTheme?: () => void;
+  userSession?: { email: string; companyName?: string } | null;
+  onLogout?: () => void;
 }
 
-export function LandingPage({ onEnterDashboard, onOpenAuth, darkMode, onToggleTheme }: LandingPageProps) {
+export function LandingPage({ 
+  onEnterDashboard, 
+  onOpenAuth, 
+  darkMode, 
+  onToggleTheme,
+  userSession,
+  onLogout
+}: LandingPageProps) {
   const [sampleRup, setSampleRup] = useState("Construcción & Obras Civiles (UNSPSC 72121100)");
   const [sampleLiquidity, setSampleLiquidity] = useState("1.85");
 
@@ -231,20 +241,47 @@ export function LandingPage({ onEnterDashboard, onOpenAuth, darkMode, onToggleTh
               </button>
             )}
             
-            <button
-              onClick={() => onOpenAuth('login')}
-              className="text-xs sm:text-sm font-bold px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-200"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Iniciar Sesión</span>
-            </button>
-            <button
-              onClick={onEnterDashboard}
-              className="text-xs sm:text-sm font-black px-6 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2 cursor-pointer"
-            >
-              <span>Ir al Dashboard</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {userSession ? (
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs font-semibold text-blue-700 dark:text-blue-300 shadow-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="max-w-[140px] truncate">{userSession.companyName || userSession.email}</span>
+                </div>
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 rounded-full border border-slate-200 dark:border-slate-800 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 text-slate-500 dark:text-slate-400 transition-colors cursor-pointer"
+                    title={`Cerrar sesión (${userSession.email})`}
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  onClick={onEnterDashboard}
+                  className="text-xs sm:text-sm font-black px-5 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <span>Ir al Dashboard</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => onOpenAuth('login')}
+                  className="text-xs sm:text-sm font-bold px-4 py-2 rounded-full border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-200"
+                >
+                  <LogIn className="w-4 h-4" />
+                  <span>Iniciar Sesión</span>
+                </button>
+                <button
+                  onClick={onEnterDashboard}
+                  className="text-xs sm:text-sm font-black px-6 py-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 hover:scale-105 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <span>Ir al Dashboard</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>

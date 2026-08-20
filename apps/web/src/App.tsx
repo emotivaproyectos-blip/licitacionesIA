@@ -218,6 +218,7 @@ export default function App() {
 
   // ESTADO AUTHENTICACIÓN Y ONBOARDING RUP
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authInitialTab, setAuthInitialTab] = useState<'login' | 'signup' | 'magic'>('login');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [userSession, setUserSession] = useState<{ email: string; companyName?: string } | null>(null);
 
@@ -313,6 +314,21 @@ export default function App() {
       console.error('Error signing out:', e);
     }
     setUserSession(null);
+    setCurrentView('landing');
+  };
+
+  const handleEnterDashboard = () => {
+    if (userSession) {
+      setCurrentView('dashboard');
+    } else {
+      setAuthInitialTab('login');
+      setIsAuthModalOpen(true);
+    }
+  };
+
+  const handleOpenAuth = (mode?: 'login' | 'register') => {
+    setAuthInitialTab(mode === 'register' ? 'signup' : 'login');
+    setIsAuthModalOpen(true);
   };
 
   const [evaluatedTenders, setEvaluatedTenders] = useState<EvaluatedTender[]>([]);
@@ -684,18 +700,19 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     return (
       <div className={isDarkMode ? 'dark' : 'light'}>
         <LandingPage
-          onEnterDashboard={() => setCurrentView('dashboard')}
-          onOpenAuth={(mode) => {
-            setIsAuthModalOpen(true);
-          }}
+          onEnterDashboard={handleEnterDashboard}
+          onOpenAuth={handleOpenAuth}
           darkMode={isDarkMode}
           onToggleTheme={toggleTheme}
+          userSession={userSession}
+          onLogout={handleLogout}
         />
 
         {/* MODAL DE AUTENTICACIÓN SUPABASE */}
         <AuthModal
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
+          initialTab={authInitialTab}
           onSuccess={(user, isNewUser) => {
             setUserSession({ email: user.email, companyName: user.companyName });
             if (user.companyName || user.nit) {
@@ -871,7 +888,10 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
             </button>
           ) : (
             <button
-              onClick={() => setIsAuthModalOpen(true)}
+              onClick={() => {
+                setAuthInitialTab('login');
+                setIsAuthModalOpen(true);
+              }}
               title="Iniciar Sesión / Registrarse"
               className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all relative group"
             >
@@ -2261,6 +2281,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
+        initialTab={authInitialTab}
         onSuccess={(user, isNewUser) => {
           setUserSession({ email: user.email, companyName: user.companyName });
           if (user.companyName || user.nit) {
