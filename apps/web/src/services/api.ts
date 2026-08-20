@@ -43,7 +43,7 @@ export interface EvaluationResultDTO {
   missing_documents: string[];
   confidence_level: number;
 }
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://emotiva-licitia-api.onrender.com';
 const SODA_SECOP2_URL = 'https://www.datos.gov.co/resource/p6dx-8zbt.json';
 const SODA_SECOP1_URL = 'https://www.datos.gov.co/resource/f789-7hwg.json';
 const SMMLV_2026 = 1400000.0;
@@ -164,7 +164,7 @@ export async function fetchLiveTenders(
     if (department && department.trim()) params.set('department', department.trim());
 
     const res = await fetch(`${API_BASE_URL}/api/v1/secop/live?${params.toString()}`, {
-      signal: AbortSignal.timeout(1500)
+      signal: AbortSignal.timeout(6000)
     });
     if (res.ok) {
       const data = await res.json();
