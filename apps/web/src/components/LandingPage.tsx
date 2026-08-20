@@ -608,13 +608,6 @@ export function LandingPage({
           </section>
         </div>
 
-        {/* Scroll indicator before curtain footer */}
-        <div className="py-12 flex flex-col items-center justify-center text-center">
-          <p className="text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400 font-bold mb-2">
-            Desplázate hacia abajo para ver el cierre interactivo
-          </p>
-          <div className="w-[1px] h-12 bg-gradient-to-b from-blue-500 to-transparent" />
-        </div>
 
       </main>
 
