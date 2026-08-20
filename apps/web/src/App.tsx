@@ -59,6 +59,8 @@ import {
 } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
+import { TermsPage } from './components/TermsPage';
+import { PrivacyPage } from './components/PrivacyPage';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SubscriptionModal } from './components/SubscriptionModal';
 import { DossierModal } from './components/DossierModal';
@@ -79,8 +81,7 @@ import {
   addApplicationRecord, 
   ApplicationRecord 
 } from './services/submissionsService';
-import { fetchLiveTenders, formatFriendlyDate, queryTenderAssistant, TenderDTO } from './services/api';
-import { supabase, signOutUser } from './services/supabase';
+import { supabase, signOutUser, getUserProfile, syncUserProfile } from './services/supabase';
 
 interface CompanyProfile {
   name: string;
@@ -184,7 +185,8 @@ function renderMessageContent(content: string) {
 }
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<'landing' | 'dashboard'>('landing');
+  const [currentView, setCurrentView] = useState<'landing' | 'dashboard' | 'terms' | 'privacy'>('landing');
+  const [previousView, setPreviousView] = useState<'landing' | 'dashboard'>('landing');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [showCompanyModal, setShowCompanyModal] = useState<boolean>(false);
   const [filterTab, setFilterTab] = useState<'all' | 'high_match' | 'partial_match' | 'low_match'>('all');
@@ -258,12 +260,16 @@ export default function App() {
 
   // Escuchar sesión activa de Supabase (OAuth de Google, Magic Link o Login con contraseña)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const u = session.user;
+    const handleUserSession = async (u: any) => {
+      if (!u) {
+        setUserSession(null);
+        return;
+      }
+      try {
+        const profile = await syncUserProfile(u);
         const meta = u.user_metadata || {};
-        const compName = meta.company_name || meta.full_name || meta.name || u.email?.split('@')[0];
-        const compNit = meta.nit || '901.452.890-1';
+        const compName = profile?.organization?.name || meta.company_name || meta.full_name || meta.name || u.email?.split('@')[0];
+        const compNit = profile?.organization?.nit || meta.nit || '901.452.890-1';
 
         setUserSession({ email: u.email || '', companyName: compName });
         setCompany(prev => ({
@@ -276,27 +282,20 @@ export default function App() {
           name: compName || prev.name,
           nit: compNit || prev.nit
         }));
+      } catch (err) {
+        console.warn('Error handling user session profile:', err);
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        handleUserSession(session.user);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        const u = session.user;
-        const meta = u.user_metadata || {};
-        const compName = meta.company_name || meta.full_name || meta.name || u.email?.split('@')[0];
-        const compNit = meta.nit || '901.452.890-1';
-
-        setUserSession({ email: u.email || '', companyName: compName });
-        setCompany(prev => ({
-          ...prev,
-          name: compName || prev.name,
-          nit: compNit || prev.nit
-        }));
-        setFormCompany(prev => ({
-          ...prev,
-          name: compName || prev.name,
-          nit: compNit || prev.nit
-        }));
+        handleUserSession(session.user);
       } else {
         setUserSession(null);
       }
@@ -330,6 +329,59 @@ export default function App() {
     setAuthInitialTab(mode === 'register' ? 'signup' : 'login');
     setIsAuthModalOpen(true);
   };
+
+  const handleOpenTerms = () => {
+    if (currentView !== 'terms') {
+      setPreviousView(currentView as 'landing' | 'dashboard');
+    }
+    setCurrentView('terms');
+    window.location.hash = 'terminos';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleBackFromTerms = () => {
+    setCurrentView(previousView || 'landing');
+    if (window.location.hash === '#terminos' || window.location.hash === '#terms') {
+      try {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      } catch (_) {}
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenPrivacy = () => {
+    if (currentView !== 'privacy') {
+      setPreviousView(currentView as 'landing' | 'dashboard');
+    }
+    setCurrentView('privacy');
+    window.location.hash = 'privacidad';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleBackFromPrivacy = () => {
+    setCurrentView(previousView || 'landing');
+    if (window.location.hash === '#privacidad' || window.location.hash === '#privacy') {
+      try {
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      } catch (_) {}
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Detector de hash en URL para acceder directamente a #terminos o #privacidad
+  useEffect(() => {
+    const checkHash = () => {
+      const hash = window.location.hash;
+      if (hash === '#terminos' || hash === '#terms') {
+        setCurrentView('terms');
+      } else if (hash === '#privacidad' || hash === '#privacy') {
+        setCurrentView('privacy');
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
 
   const [evaluatedTenders, setEvaluatedTenders] = useState<EvaluatedTender[]>([]);
   const [selectedTender, setSelectedTender] = useState<EvaluatedTender | null>(null);
@@ -696,12 +748,102 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
 
   const selectedSubmission = selectedTender ? submittedTenders[selectedTender.id] : null;
 
+  if (currentView === 'privacy') {
+    return (
+      <div className={isDarkMode ? 'dark' : 'light'}>
+        <PrivacyPage
+          onBack={handleBackFromPrivacy}
+          darkMode={isDarkMode}
+          onToggleTheme={toggleTheme}
+          onEnterDashboard={handleEnterDashboard}
+          onOpenAuth={handleOpenAuth}
+          onOpenTerms={handleOpenTerms}
+        />
+
+        {/* MODAL DE AUTENTICACIÓN SUPABASE */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onOpenTerms={handleOpenTerms}
+          onOpenPrivacy={handleOpenPrivacy}
+          initialTab={authInitialTab}
+          onSuccess={(user, isNewUser) => {
+            setUserSession({ email: user.email, companyName: user.companyName });
+            if (user.companyName || user.nit) {
+              setCompany(prev => ({
+                ...prev,
+                name: user.companyName || prev.name,
+                nit: user.nit || prev.nit
+              }));
+              setFormCompany(prev => ({
+                ...prev,
+                name: user.companyName || prev.name,
+                nit: user.nit || prev.nit
+              }));
+            }
+            setIsAuthModalOpen(false);
+            setCurrentView('dashboard');
+            if (isNewUser) {
+              setIsOnboardingOpen(true);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (currentView === 'terms') {
+    return (
+      <div className={isDarkMode ? 'dark' : 'light'}>
+        <TermsPage
+          onBack={handleBackFromTerms}
+          darkMode={isDarkMode}
+          onToggleTheme={toggleTheme}
+          onEnterDashboard={handleEnterDashboard}
+          onOpenAuth={handleOpenAuth}
+          onOpenPrivacy={handleOpenPrivacy}
+        />
+
+        {/* MODAL DE AUTENTICACIÓN SUPABASE */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onOpenTerms={handleOpenTerms}
+          onOpenPrivacy={handleOpenPrivacy}
+          initialTab={authInitialTab}
+          onSuccess={(user, isNewUser) => {
+            setUserSession({ email: user.email, companyName: user.companyName });
+            if (user.companyName || user.nit) {
+              setCompany(prev => ({
+                ...prev,
+                name: user.companyName || prev.name,
+                nit: user.nit || prev.nit
+              }));
+              setFormCompany(prev => ({
+                ...prev,
+                name: user.companyName || prev.name,
+                nit: user.nit || prev.nit
+              }));
+            }
+            setIsAuthModalOpen(false);
+            setCurrentView('dashboard');
+            if (isNewUser) {
+              setIsOnboardingOpen(true);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   if (currentView === 'landing') {
     return (
       <div className={isDarkMode ? 'dark' : 'light'}>
         <LandingPage
           onEnterDashboard={handleEnterDashboard}
           onOpenAuth={handleOpenAuth}
+          onOpenTerms={handleOpenTerms}
+          onOpenPrivacy={handleOpenPrivacy}
           darkMode={isDarkMode}
           onToggleTheme={toggleTheme}
           userSession={userSession}
@@ -712,6 +854,8 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         <AuthModal
           isOpen={isAuthModalOpen}
           onClose={() => setIsAuthModalOpen(false)}
+          onOpenTerms={handleOpenTerms}
+          onOpenPrivacy={handleOpenPrivacy}
           initialTab={authInitialTab}
           onSuccess={(user, isNewUser) => {
             setUserSession({ email: user.email, companyName: user.companyName });
@@ -856,6 +1000,30 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
               <CreditCard className="w-5 h-5" />
               <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
                 Plan {currentPlanId.toUpperCase()} (Wompi)
+              </span>
+            </button>
+
+            {/* 6. Términos y Condiciones Legales */}
+            <button
+              onClick={handleOpenTerms}
+              title="Términos y Condiciones de Uso"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 dark:text-slate-400 dark:hover:text-blue-300 dark:hover:bg-slate-800 transition-all relative group"
+            >
+              <Scale className="w-5 h-5" />
+              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
+                Términos y Condiciones
+              </span>
+            </button>
+
+            {/* 7. Política de Privacidad */}
+            <button
+              onClick={handleOpenPrivacy}
+              title="Política de Privacidad y Habeas Data"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50/80 dark:text-slate-400 dark:hover:text-emerald-300 dark:hover:bg-slate-800 transition-all relative group"
+            >
+              <ShieldCheck className="w-5 h-5" />
+              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
+                Política de Privacidad
               </span>
             </button>
 

@@ -31,6 +31,8 @@ if (typeof window !== "undefined") {
 interface LandingPageProps {
   onEnterDashboard: () => void;
   onOpenAuth: (mode?: 'login' | 'register') => void;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
   darkMode?: boolean;
   onToggleTheme?: () => void;
   userSession?: { email: string; companyName?: string } | null;
@@ -40,6 +42,8 @@ interface LandingPageProps {
 export function LandingPage({ 
   onEnterDashboard, 
   onOpenAuth, 
+  onOpenTerms,
+  onOpenPrivacy,
   darkMode, 
   onToggleTheme,
   userSession,
@@ -620,6 +624,8 @@ export function LandingPage({
       <CinematicFooter 
         onEnterApp={onEnterDashboard}
         onOpenAuth={() => onOpenAuth('register')}
+        onOpenTerms={onOpenTerms}
+        onOpenPrivacy={onOpenPrivacy}
       />
 
     </div>

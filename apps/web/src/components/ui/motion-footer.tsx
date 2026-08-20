@@ -228,9 +228,11 @@ const MarqueeItem = () => (
 interface CinematicFooterProps {
   onEnterApp?: () => void;
   onOpenAuth?: () => void;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
 }
 
-export function CinematicFooter({ onEnterApp, onOpenAuth }: CinematicFooterProps) {
+export function CinematicFooter({ onEnterApp, onOpenAuth, onOpenTerms, onOpenPrivacy }: CinematicFooterProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const giantTextRef = useRef<HTMLDivElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -352,8 +354,30 @@ export function CinematicFooter({ onEnterApp, onOpenAuth }: CinematicFooterProps
           </div>
 
           <div className="relative z-20 w-full pb-8 px-6 md:px-12 flex flex-col md:flex-row items-center justify-between gap-4 border-t border-slate-200 dark:border-slate-800/80 pt-6">
-            <div className="text-slate-500 dark:text-slate-400 text-[11px] md:text-xs font-semibold tracking-wider uppercase order-2 md:order-1">
-              © 2026 LicitIA. Hecho para empresas en Colombia.
+            <div className="flex flex-wrap items-center gap-3 text-slate-500 dark:text-slate-400 text-[11px] md:text-xs font-semibold tracking-wider uppercase order-2 md:order-1">
+              <span>© 2026 LicitIA. Hecho para empresas en Colombia.</span>
+              <span className="hidden sm:inline opacity-40">|</span>
+              {onOpenTerms && (
+                <button
+                  type="button"
+                  onClick={onOpenTerms}
+                  className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer normal-case font-bold tracking-normal"
+                >
+                  Términos y Condiciones
+                </button>
+              )}
+              {onOpenPrivacy && (
+                <>
+                  <span className="opacity-40">•</span>
+                  <button
+                    type="button"
+                    onClick={onOpenPrivacy}
+                    className="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer normal-case font-bold tracking-normal"
+                  >
+                    Privacidad
+                  </button>
+                </>
+              )}
             </div>
 
             <div className="px-5 py-2.5 rounded-full flex items-center gap-2 order-1 md:order-2 cursor-default border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 text-[11px] md:text-xs shadow-xs">

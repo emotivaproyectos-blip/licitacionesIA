@@ -26,6 +26,8 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: any, isNewUser?: boolean) => void;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
   initialTab?: 'login' | 'signup' | 'magic';
 }
 
@@ -33,6 +35,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen, 
   onClose, 
   onSuccess,
+  onOpenTerms,
+  onOpenPrivacy,
   initialTab = 'login'
 }) => {
   const [tab, setTab] = useState<'login' | 'signup' | 'magic'>(initialTab);
@@ -387,6 +391,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* AVISO LEGAL DE TÉRMINOS Y PRIVACIDAD EN REGISTRO */}
+              {tab === 'signup' && (
+                <div className="text-[11px] text-slate-500 dark:text-slate-400 text-center px-1 leading-relaxed">
+                  Al registrarte, aceptas nuestros{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      if (onOpenTerms) onOpenTerms();
+                    }}
+                    className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                  >
+                    Términos y Condiciones
+                  </button>
+                  {' '}y nuestra{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      if (onOpenPrivacy) onOpenPrivacy();
+                    }}
+                    className="text-blue-600 dark:text-blue-400 font-bold hover:underline cursor-pointer"
+                  >
+                    Política de Privacidad
+                  </button>
+                  .
                 </div>
               )}
 
