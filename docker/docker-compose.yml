@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Supabase PostgreSQL con extensión pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: licitia_postgres
+    environment:
+      POSTGRES_DB: licitia_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_secret_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../apps/api/app/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  # Redis Cache & Message Broker
+  redis:
+    image: redis:7-alpine
+    container_name: licitia_redis
+    ports:
+      - "6379:6379"
+
+  # Backend FastAPI
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: licitia_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../apps/api/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres_secret_password@postgres:5432/licitia_db
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  pgdata:
