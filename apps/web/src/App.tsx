@@ -82,6 +82,13 @@ import {
   ApplicationRecord 
 } from './services/submissionsService';
 import { supabase, signOutUser, getUserProfile, syncUserProfile } from './services/supabase';
+import { 
+  TenderDTO, 
+  fetchLiveTenders, 
+  queryTenderAssistant, 
+  formatFriendlyDate, 
+  resolveSecopUrl 
+} from './services/api';
 
 interface CompanyProfile {
   name: string;

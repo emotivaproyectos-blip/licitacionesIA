@@ -447,6 +447,24 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </>
                 )}
               </button>
+
+              {/* ACCESO DEMO INSTANTÁNEO */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSuccess({
+                      email: email || 'emotivaproyectos@gmail.com',
+                      companyName: companyName || 'Emotiva Proyectos S.A.S.',
+                      nit: nit || '901.452.890-1'
+                    }, false);
+                  }}
+                  className="w-full py-2 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors border border-slate-200/80 dark:border-slate-700 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                  <span>Explorar Dashboard sin Registro (Modo Demo)</span>
+                </button>
+              </div>
             </form>
 
           </div>
