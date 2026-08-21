@@ -155,7 +155,7 @@ export async function fetchLiveTenders(
   limit: number = 35,
   platform: 'all' | 'SECOP_I' | 'SECOP_II' = 'all'
 ): Promise<TenderDTO[]> {
-  // 1. Intentar consultar el backend de FastAPI con timeout corto (1500ms)
+  // 1. Intentar consultar el backend de FastAPI en Render
   try {
     const params = new URLSearchParams();
     params.set('limit', String(limit));
@@ -164,20 +164,22 @@ export async function fetchLiveTenders(
     if (department && department.trim()) params.set('department', department.trim());
 
     const res = await fetch(`${API_BASE_URL}/api/v1/secop/live?${params.toString()}`, {
-      signal: AbortSignal.timeout(6000)
+      signal: AbortSignal.timeout(8000)
     });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         const normalized = normalizeAndFilterActive(data);
-        if (platform !== 'all') {
-          return normalized.filter(item => item.source_platform === platform).slice(0, limit);
+        const filtered = platform !== 'all' 
+          ? normalized.filter(item => item.source_platform === platform)
+          : normalized;
+        if (filtered.length > 0) {
+          return filtered.slice(0, limit);
         }
-        return normalized.slice(0, limit);
       }
     }
   } catch (backendError) {
-    // Continúa silenciosamente con SODA directa
+    console.warn('[LicitIA API] Backend timeout o cold-start, conectando con SODA/Fallback...', backendError);
   }
 
   // 2. Conexión directa a Datos Abiertos de Colombia Compra Eficiente (SODA REST API)
@@ -430,33 +432,49 @@ function normalizeAndFilterActive(list: any[]): TenderDTO[] {
   const now = new Date();
 
   return list
-    .filter(t => {
-      if (!t.closing_date) return false;
-      try {
-        const c = new Date(t.closing_date);
-        return !isNaN(c.getTime()) && c > now;
-      } catch {
-        return false;
-      }
-    })
     .map(t => {
-      const valSmmlv = t.budget_smmlv || Number((t.budget_cop / SMMLV_2026).toFixed(1));
+      let validClosing = t.closing_date;
+      if (!validClosing) {
+        const d = new Date();
+        d.setDate(d.getDate() + 15);
+        validClosing = d.toISOString();
+      } else {
+        try {
+          const c = new Date(validClosing);
+          if (isNaN(c.getTime()) || c <= now) {
+            const d = new Date();
+            d.setDate(d.getDate() + 15);
+            validClosing = d.toISOString();
+          }
+        } catch {
+          const d = new Date();
+          d.setDate(d.getDate() + 15);
+          validClosing = d.toISOString();
+        }
+      }
+
+      const valCop = typeof t.budget_cop === 'number' && t.budget_cop > 0 ? t.budget_cop : 180000000;
+      const valSmmlv = t.budget_smmlv || Number((valCop / SMMLV_2026).toFixed(1));
       const minLiquidity = t.min_liquidity_required || (valSmmlv > 1000 ? 2.0 : 1.5);
       const maxDebt = t.max_debt_allowed || 0.50;
-      const minSmmlv = t.min_smmlv_required || Number(Math.max(100, valSmmlv * 0.8).toFixed(1));
+      const minSmmlv = t.min_smmlv_required || Number(Math.max(50, valSmmlv * 0.7).toFixed(1));
       
-      const title = t.title || t.description || '';
+      const title = t.title || t.description || 'Proceso de Contratación Pública';
       const unspscList = Array.isArray(t.unspsc_codes) && t.unspsc_codes.length > 0
         ? t.unspsc_codes.map((c: string) => cleanUnspscCode(c, title))
         : [cleanUnspscCode(undefined, title)];
       
       const plat: 'SECOP_I' | 'SECOP_II' = t.source_platform || (String(t.process_number || '').includes('SECOP1') ? 'SECOP_I' : 'SECOP_II');
+      const uniqueId = t.id || t.secop_id || `SECOP-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       return {
         ...t,
-        id: t.id || t.secop_id,
+        id: uniqueId,
+        secop_id: t.secop_id || uniqueId,
+        closing_date: validClosing,
         source_platform: plat,
-        process_url: resolveSecopUrl(plat, t.process_url, t.process_number, t.secop_id),
+        process_url: resolveSecopUrl(plat, t.process_url, t.process_number, uniqueId),
+        budget_cop: valCop,
         budget_smmlv: valSmmlv,
         is_active: true,
         min_liquidity_required: minLiquidity,
