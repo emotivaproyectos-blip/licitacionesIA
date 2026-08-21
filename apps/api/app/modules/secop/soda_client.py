@@ -211,8 +211,8 @@ class SECOPDatosAbiertosClient:
                 process_number="SE-No.026-2026",
                 entity_name="DEPARTAMENTO DE CUNDINAMARCA - SECRETARIA DE EDUCACION",
                 entity_nit="899.999.114-0",
-                title="Servicios de apoyo logístico y tecnológico para la gestión educativa departamental",
-                description="Contratación de servicios integrales para soporte de plataformas tecnológicas.",
+                title="Servicios de apoyo logístico y desarrollo de plataformas tecnológicas y software para la gestión educativa",
+                description="Contratación de servicios integrales para desarrollo, soporte e integración de software y plataformas tecnológicas.",
                 contract_type="Selección Abreviada Menor Cuantía",
                 budget_cop=185000000.0,
                 budget_smmlv=132.1,
@@ -231,8 +231,8 @@ class SECOPDatosAbiertosClient:
                 process_number="INA-049-2026",
                 entity_name="ENTerritorio S.A",
                 entity_nit="860.007.738-9",
-                title="Prestación de servicios integrales de soporte tecnológico y consultoría institucional",
-                description="Soporte y consultoría especializada en infraestructura y sistemas de información.",
+                title="Prestación de servicios integrales de desarrollo de software, soporte tecnológico y consultoría institucional",
+                description="Soporte y desarrollo de sistemas de información, software a la medida e infraestructura corporativa.",
                 contract_type="Licitación Pública (LP)",
                 budget_cop=420000000.0,
                 budget_smmlv=300.0,
@@ -246,12 +246,32 @@ class SECOPDatosAbiertosClient:
                 source_platform="SECOP_II"
             ),
             SECOPTenderDTO(
+                id="CO1.REQ.10899450",
+                secop_id="CO1.REQ.10899450",
+                process_number="LP-TI-088-2026",
+                entity_name="AGENCIA NACIONAL DE TIERRAS",
+                entity_nit="900.948.953-8",
+                title="Implementación de arquitectura de datos en la nube y licencias de software de analítica",
+                description="Servicios especializados de ingeniería de software, nube y licenciamiento corporativo.",
+                contract_type="Licitación Pública",
+                budget_cop=650000000.0,
+                budget_smmlv=464.2,
+                department="Bogotá D.C.",
+                city="Bogotá D.C.",
+                publication_date="2026-08-10T09:00:00.000",
+                closing_date="2026-08-30T17:00:00.000",
+                status="Presentación de oferta",
+                unspsc_codes=["43230000", "81111500"],
+                process_url="https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10755890",
+                source_platform="SECOP_II"
+            ),
+            SECOPTenderDTO(
                 id="CO1.REQ.10811792",
                 secop_id="CO1.REQ.10811792",
                 process_number="DABS-SMIC-015 DE 2026",
                 entity_name="MUNICIPIO DE ARMENIA QUINDIO",
                 entity_nit="890.001.002-1",
-                title="Consultoría técnica y desarrollo de soluciones tecnológicas institucionales",
+                title="Consultoría técnica y desarrollo de soluciones tecnológicas e informáticas institucionales",
                 description="Servicio técnico especializado para modernización institucional y soporte analítico.",
                 contract_type="Concurso de Méritos Abierto (CMA)",
                 budget_cop=95000000.0,
@@ -264,9 +284,61 @@ class SECOPDatosAbiertosClient:
                 unspsc_codes=["80101500", "81111500"],
                 process_url="https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10667693",
                 source_platform="SECOP_II"
+            ),
+            SECOPTenderDTO(
+                id="SECOP1.RAD_TI_2026_018",
+                secop_id="SECOP1.RAD_TI_2026_018",
+                process_number="RAD-SECOP1-TI-2026-018",
+                entity_name="MINISTERIO DE TECNOLOGÍAS DE LA INFORMACIÓN Y LAS COMUNICACIONES",
+                entity_nit="899.999.053-1",
+                title="Adquisición y renovación de licencias de software ofimático y soluciones de ciberseguridad perimetral",
+                description="Servicios de licenciamiento de software y soporte técnico especializado para la entidad.",
+                contract_type="Selección Abreviada Menor Cuantía (SECOP I)",
+                budget_cop=195000000.0,
+                budget_smmlv=139.3,
+                department="Cundinamarca",
+                city="Bogotá D.C.",
+                publication_date="2026-08-08T08:00:00.000",
+                closing_date="2026-08-27T17:00:00.000",
+                status="Convocado / En Ofertas",
+                unspsc_codes=["43230000", "81111500", "80101500"],
+                process_url="https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=RAD-SECOP1-TI-2026-018",
+                source_platform="SECOP_I"
+            ),
+            SECOPTenderDTO(
+                id="CO1.REQ.10912300",
+                secop_id="CO1.REQ.10912300",
+                process_number="CM-OBR-041-2026",
+                entity_name="INSTITUTO NACIONAL DE VÍAS (INVIAS)",
+                entity_nit="800.215.807-2",
+                title="Mantenimiento periódico y rehabilitación de infraestructura vial de la red troncal",
+                description="Obras civiles y mantenimiento integral de corredores viales nacionales.",
+                contract_type="Licitación de Obra Pública",
+                budget_cop=2400000000.0,
+                budget_smmlv=1714.2,
+                department="Santander",
+                city="Bucaramanga",
+                publication_date="2026-08-05T09:00:00.000",
+                closing_date="2026-08-29T17:00:00.000",
+                status="Presentación de oferta",
+                unspsc_codes=["72121100", "72102900"],
+                process_url="https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10781200",
+                source_platform="SECOP_II"
             )
         ]
         if query and isinstance(query, str) and query.strip():
             q = query.strip().lower()
-            return [f for f in fallbacks if q in f.title.lower() or q in f.entity_name.lower() or q in f.process_number.lower()]
+            matched = [
+                f for f in fallbacks 
+                if q in f.title.lower() 
+                or q in f.entity_name.lower() 
+                or q in f.process_number.lower()
+                or (f.description and q in f.description.lower())
+                or any(q in code for code in f.unspsc_codes)
+                or (q in ["software", "ti", "tecnologia", "sistemas"] and any(code.startswith("8111") or code.startswith("4323") or code.startswith("8010") for code in f.unspsc_codes))
+                or (q in ["consultoria", "consultor", "estudios"] and any(code.startswith("8010") for code in f.unspsc_codes))
+                or (q in ["obra", "obras", "infraestructura"] and any(code.startswith("7212") for code in f.unspsc_codes))
+            ]
+            if matched:
+                return matched
         return fallbacks

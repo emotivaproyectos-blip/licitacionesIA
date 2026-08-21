@@ -741,13 +741,19 @@ function getFallbackOfficialTenders(query?: string, platform: 'all' | 'SECOP_I' 
 
   if (query && query.trim()) {
     const q = query.toLowerCase().trim();
-    filtered = filtered.filter(f => 
+    const matched = filtered.filter(f => 
       f.title.toLowerCase().includes(q) || 
       f.entity_name.toLowerCase().includes(q) || 
       f.process_number.toLowerCase().includes(q) ||
       (f.description && f.description.toLowerCase().includes(q)) ||
-      (f.unspsc_codes && f.unspsc_codes.some(code => code.includes(q)))
+      (f.unspsc_codes && f.unspsc_codes.some(code => code.includes(q))) ||
+      (q in ["software", "ti", "tecnologia", "sistemas"] && (f.unspsc_codes || []).some(code => code.startsWith("8111") || code.startsWith("4323") || code.startsWith("8010"))) ||
+      (q in ["consultoria", "consultor", "estudios"] && (f.unspsc_codes || []).some(code => code.startsWith("8010"))) ||
+      (q in ["obra", "obras", "infraestructura"] && (f.unspsc_codes || []).some(code => code.startsWith("7212")))
     );
+    if (matched.length > 0) {
+      return matched;
+    }
   }
 
   return filtered;
