@@ -62,6 +62,8 @@ export const ApplicationsHistoryModal: React.FC<ApplicationsHistoryModalProps> =
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
@@ -82,17 +84,25 @@ export const ApplicationsHistoryModal: React.FC<ApplicationsHistoryModalProps> =
 
   const handleDeleteSingle = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('¿Deseas eliminar este registro de postulación de tu historial?')) {
-      const updated = deleteApplicationRecord(id, companyNit);
+    setConfirmDeleteId(id);
+  };
+
+  const confirmDelete = () => {
+    if (confirmDeleteId) {
+      const updated = deleteApplicationRecord(confirmDeleteId, companyNit);
       onApplicationsChange(updated);
+      setConfirmDeleteId(null);
     }
   };
 
   const handleClearAll = () => {
-    if (window.confirm('¿Deseas limpiar todo el historial de postulaciones para esta empresa?')) {
-      const updated = clearApplicationsHistory(companyNit);
-      onApplicationsChange(updated);
-    }
+    setConfirmClearAll(true);
+  };
+
+  const confirmClear = () => {
+    const updated = clearApplicationsHistory(companyNit);
+    onApplicationsChange(updated);
+    setConfirmClearAll(false);
   };
 
   // Filtrado de postulaciones
@@ -534,6 +544,79 @@ export const ApplicationsHistoryModal: React.FC<ApplicationsHistoryModalProps> =
         </div>
 
       </div>
+
+      {/* ── DIÁLOGO DE CONFIRMACIÓN: ELIMINAR UNA POSTULACIÓN ── */}
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/60 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Eliminar postulación</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Esta acción no se puede deshacer.</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              ¿Deseas eliminar este registro de postulación de tu historial?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm"
+              >
+                Sí, eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DIÁLOGO DE CONFIRMACIÓN: LIMPIAR HISTORIAL COMPLETO ── */}
+      {confirmClearAll && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 dark:bg-rose-950/60 flex items-center justify-center flex-shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Limpiar historial completo</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Esta acción no se puede deshacer.</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-700 dark:text-slate-300">
+              ¿Deseas eliminar <strong>todas</strong> las postulaciones del historial de esta empresa?
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmClearAll(false)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border border-slate-200 dark:border-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmClear}
+                className="px-4 py-2 rounded-xl text-sm font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm"
+              >
+                Sí, limpiar todo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

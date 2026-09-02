@@ -66,7 +66,10 @@ import { SubscriptionModal } from './components/SubscriptionModal';
 import { DossierModal } from './components/DossierModal';
 import { SubmissionWizardModal } from './components/SubmissionWizardModal';
 import { ApplicationsHistoryModal } from './components/ApplicationsHistoryModal';
+import { CompanyVaultModal } from './components/CompanyVaultModal';
 import { PlanGateModal, GateFeatureType } from './components/PlanGateModal';
+import { ConsortiumSimulatorModal } from './components/ConsortiumSimulatorModal';
+import { loadCompanyVault, VaultDocument } from './services/companyVaultService';
 import { 
   PlanId, 
   PLAN_LIMITS_MAP, 
@@ -81,6 +84,7 @@ import {
   addApplicationRecord, 
   ApplicationRecord 
 } from './services/submissionsService';
+import { RequiredDossierDoc, AttachedFileInfo } from './services/dossierGenerator';
 import { supabase, signOutUser, getUserProfile, syncUserProfile } from './services/supabase';
 import { 
   TenderDTO, 
@@ -102,6 +106,12 @@ interface CompanyProfile {
   interest_expense: number;   // Gastos de Intereses
   smmlv_experience: number;   // SMMLV Acumulados RUP
   unspsc_codes: string[];     // Códigos UNSPSC Acreditados
+  email?: string;
+  phone?: string;
+  city?: string;
+  address?: string;
+  legal_rep_name?: string;
+  legal_rep_id?: string;
 }
 
 interface EvaluatedTender extends TenderDTO {
@@ -208,19 +218,49 @@ export default function App() {
   const [isSearchingLive, setIsSearchingLive] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
 
-  // Perfil de la Empresa Activa
-  const [company, setCompany] = useState<CompanyProfile>({
-    name: 'Emotiva Tech S.A.S.',
-    nit: '901.452.890-1',
-    sector: 'Tecnología e Ingeniería de Software',
-    current_assets: 850000000,
-    current_liabilities: 400000000,
-    total_assets: 1200000000,
-    total_liabilities: 500000000,
-    operating_income: 180000000,
-    interest_expense: 30000000,
-    smmlv_experience: 950.0,
-    unspsc_codes: ['80101500', '81111500', '43230000']
+  // Almacenamiento persistente del perfil empresarial real
+  const STORAGE_COMPANY_KEY = 'licitia_company_profile_v1';
+
+  function getStoredCompanyProfile(): CompanyProfile | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = localStorage.getItem(STORAGE_COMPANY_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && parsed.name) return parsed;
+      }
+    } catch (e) {
+      console.warn('Error reading stored company profile:', e);
+    }
+    return null;
+  }
+
+  function storeCompanyProfile(comp: CompanyProfile): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_COMPANY_KEY, JSON.stringify(comp));
+    } catch (e) {
+      console.warn('Error saving stored company profile:', e);
+    }
+  }
+
+  // Perfil de la Empresa Activa (Carga datos reales guardados o arranca en limpio para producción)
+  const [company, setCompany] = useState<CompanyProfile>(() => {
+    const stored = getStoredCompanyProfile();
+    if (stored) return stored;
+    return {
+      name: 'Mi Empresa S.A.S.',
+      nit: '900.000.000-1',
+      sector: 'Tecnología, Consultoría y Servicios',
+      current_assets: 0,
+      current_liabilities: 0,
+      total_assets: 0,
+      total_liabilities: 0,
+      operating_income: 0,
+      interest_expense: 0,
+      smmlv_experience: 0,
+      unspsc_codes: []
+    };
   });
 
   const [formCompany, setFormCompany] = useState<CompanyProfile>(company);
@@ -253,17 +293,24 @@ export default function App() {
 
   // ESTADO MODAL EXPEDIENTE REAL Y ASISTENTE DE RADICACIÓN
   const [isDossierModalOpen, setIsDossierModalOpen] = useState(false);
+  const [isConsortiumModalOpen, setIsConsortiumModalOpen] = useState(false);
   const [isSubmissionWizardOpen, setIsSubmissionWizardOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isCompanyVaultOpen, setIsCompanyVaultOpen] = useState(false);
+  const [vaultDocs, setVaultDocs] = useState<VaultDocument[]>(() => loadCompanyVault(company.nit, company.name));
   const [applicationsHistory, setApplicationsHistory] = useState<ApplicationRecord[]>(() => getApplicationsHistory(company.nit));
   const [submittedTenders, setSubmittedTenders] = useState<Record<string, { radicadoCode: string; submittedAt: string }>>({});
   const [signedLetters, setSignedLetters] = useState<Record<string, File>>({});
+  const [dossierDocsMap, setDossierDocsMap] = useState<Record<string, RequiredDossierDoc[]>>({});
+  const [dossierAttachmentsMap, setDossierAttachmentsMap] = useState<Record<string, Record<string, AttachedFileInfo>>>({});
 
-  // Sincronizar historial de postulaciones cuando cambia la empresa / cuenta activa
+  // Sincronizar historial de postulaciones y bóveda cuando cambia la empresa / cuenta activa
   useEffect(() => {
     const history = getApplicationsHistory(company.nit);
     setApplicationsHistory(history);
-  }, [company.nit]);
+    const loadedVault = loadCompanyVault(company.nit, company.name);
+    setVaultDocs(loadedVault);
+  }, [company.nit, company.name]);
 
   // Escuchar sesión activa de Supabase (OAuth de Google, Magic Link o Login con contraseña)
   useEffect(() => {
@@ -745,10 +792,11 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       .filter(Boolean);
     const cleaned = {
       ...formCompany,
-      unspsc_codes: cleanUnspsc.length > 0 ? cleanUnspsc : ['80101500', '81111500', '43230000']
+      unspsc_codes: cleanUnspsc
     };
     setCompany(cleaned);
     setFormCompany(cleaned);
+    storeCompanyProfile(cleaned);
     setShowCompanyModal(false);
   };
 
@@ -1249,6 +1297,16 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                 </p>
               </div>
             </div>
+
+            {/* BOTÓN RÁPIDO BÓVEDA DOCUMENTAL EMPRESARIAL */}
+            <button
+              onClick={() => setIsCompanyVaultOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-xs font-semibold shadow-xs transition-colors"
+              title="Repositorio Documental Permanente de la Empresa (Jurídicos, Financieros, Experiencia, Personal, Certificaciones)"
+            >
+              <Folder className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Bóveda Documental ({vaultDocs.length})</span>
+            </button>
 
             {/* BOTÓN RÁPIDO MIS POSTULACIONES */}
             <button
@@ -1892,6 +1950,10 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     <span>Matriz & Diagnóstico</span>
+                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[10px] rounded-full flex items-center gap-1">
+                      {!planLimits.hasExactGapDiagnosis && <Lock className="w-2.5 h-2.5 text-blue-700" />}
+                      <span>RUP</span>
+                    </span>
                   </button>
 
                   <button
@@ -1920,6 +1982,10 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                   >
                     <CheckSquare className="w-4 h-4" />
                     <span>Checklist & Documentos</span>
+                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[10px] rounded-full flex items-center gap-1">
+                      {!planLimits.hasChecklistDocs && <Lock className="w-2.5 h-2.5 text-blue-700" />}
+                      <span>Docs</span>
+                    </span>
                   </button>
                 </div>
 
@@ -1927,11 +1993,11 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                 
                 {/* PESTAÑA 1: MATRIZ Y DIAGNÓSTICO */}
                 {detailTab === 'matrix' && (
-                  <div className="space-y-4">
-                    
-                    {/* BRECHAS Y RECOMENDACIÓN ESTRATÉGICA (CONTROL DE PLAN) */}
-                    {planLimits.hasExactGapDiagnosis ? (
-                      selectedTender.missing_requirements.length > 0 ? (
+                  planLimits.hasExactGapDiagnosis ? (
+                    <div className="space-y-4">
+                      
+                      {/* BRECHAS Y RECOMENDACIÓN ESTRATÉGICA */}
+                      {selectedTender.missing_requirements.length > 0 ? (
                         <div className={`p-4 rounded-xl border text-slate-900 dark:text-slate-100 space-y-3 ${
                           selectedTender.compatibility_score >= 50 
                             ? 'bg-amber-50/60 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/60' 
@@ -1965,9 +2031,37 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                               {selectedTender.strategy_recommendation}
                             </p>
                             {planLimits.hasAdvancedConsortium ? (
-                              <div className="mt-2.5 p-2 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-[11px] text-purple-900 dark:text-purple-300 font-semibold flex items-center gap-1.5">
-                                <Sparkles className="w-3.5 h-3.5 text-purple-600 flex-shrink-0" />
-                                <span>Simulador Avanzado de Consorcios Activo (Enterprise): Proporción recomendada 60%/40% para sumar experiencia SMMLV</span>
+                              <div className="mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-purple-950/40 border border-purple-200 dark:border-purple-800/80 space-y-2.5 shadow-xs">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                  <div className="flex items-start gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs flex-shrink-0 mt-0.5">
+                                      <Users className="w-4 h-4" />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h5 className="font-bold text-xs text-purple-950 dark:text-purple-200">
+                                          Simulador & Estructurador de Consorcios (Plan Enterprise)
+                                        </h5>
+                                        <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-200 text-[10px] font-bold rounded-full">
+                                          Solución Activa
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-purple-800 dark:text-purple-300 mt-0.5 leading-relaxed">
+                                        Genera la solución en proponente plural (Consorcio / UT), simula el 100% de habilitación y descarga la minuta legal oficial para SECOP.
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsConsortiumModalOpen(true)}
+                                    className="py-2 px-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/25 hover:scale-[1.02] transition-all cursor-pointer flex-shrink-0"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    <span>Abrir Simulador de Consorcio</span>
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             ) : (
                               <button
@@ -1989,109 +2083,123 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                             {selectedTender.executive_summary}
                           </p>
                         </div>
-                      )
-                    ) : (
-                      /* BLOQUE DE RESTRICCIÓN PARA PLAN EXPLORADOR RUP (FREE) */
-                      <div className="p-4 rounded-2xl border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/30 flex items-start justify-between gap-4 flex-wrap">
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div className="p-2 rounded-xl bg-amber-500 text-white font-bold mt-0.5 flex-shrink-0">
-                            <Lock className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-bold text-xs text-amber-950 dark:text-amber-200">
-                                Diagnóstico Exacto de Brechas ("¿Qué le falta a tu empresa?")
-                              </p>
-                              <span className="px-2 py-0.5 text-[9.5px] font-bold bg-amber-200 text-amber-900 rounded">
-                                Exclusivo Plan Pyme
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed max-w-xl">
-                              Conoce con precisión cuánto margen en SMMLV, liquidez o códigos UNSPSC le falta a tu empresa para habilitarse y la estrategia para subsanar.
-                            </p>
-                          </div>
+                      )}
+
+                      {/* TABLA COMPARATIVA FORMAL DE MATRIZ FINANCIERA & RUP */}
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+                          Matriz Comparativa: {company.name} vs Requisitos Oficiales
+                        </h3>
+
+                        <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
+                          <table className="w-full text-left enterprise-table">
+                            <thead>
+                              <tr>
+                                <th>Criterio de Evaluación</th>
+                                <th>Requisito Exigido</th>
+                                <th>Acreditación Empresa</th>
+                                <th>Estado & Faltantes</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-[#111827]">
+                              <tr>
+                                <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Liquidez</td>
+                                <td className="text-slate-600 dark:text-slate-400">&ge; {selectedTender.financial_compliance.liquidity.required.toFixed(2)}</td>
+                                <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.financial_compliance.liquidity.value.toFixed(2)}</td>
+                                <td>
+                                  {selectedTender.financial_compliance.liquidity.passes ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <Check className="w-3.5 h-3.5" /> Cumple
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                      <X className="w-3.5 h-3.5" /> Falta Margen de {selectedTender.financial_compliance.liquidity.gap.toFixed(2)}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Endeudamiento</td>
+                                <td className="text-slate-600 dark:text-slate-400">&le; {(selectedTender.financial_compliance.debt.max_allowed * 100).toFixed(0)}%</td>
+                                <td className="font-semibold text-slate-900 dark:text-slate-200">{(selectedTender.financial_compliance.debt.value * 100).toFixed(1)}%</td>
+                                <td>
+                                  {selectedTender.financial_compliance.debt.passes ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <Check className="w-3.5 h-3.5" /> Cumple
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                      <X className="w-3.5 h-3.5" /> Excede por {(selectedTender.financial_compliance.debt.gap * 100).toFixed(1)}%
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="font-medium text-slate-900 dark:text-slate-200">Experiencia RUP (SMMLV)</td>
+                                <td className="text-slate-600 dark:text-slate-400">{selectedTender.experience_compliance.smmlv_required} SMMLV</td>
+                                <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.experience_compliance.smmlv_accumulated} SMMLV</td>
+                                <td>
+                                  {selectedTender.experience_compliance.passes ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <Check className="w-3.5 h-3.5" /> Cumple
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                                      <AlertTriangle className="w-3.5 h-3.5" /> Faltan {selectedTender.experience_compliance.smmlv_gap.toFixed(1)} SMMLV
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
                         </div>
-                        <button
-                          onClick={() => triggerPlanGate('exact_gap_diagnosis')}
-                          className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center gap-1.5 flex-shrink-0 transition-colors"
-                        >
-                          <span>Desbloquear con Plan Pyme</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
                       </div>
-                    )}
 
-                    {/* TABLA COMPARATIVA FORMAL DE MATRIZ FINANCIERA & RUP */}
-                    <div>
-                      <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
-                        Matriz Comparativa: {company.name} vs Requisitos Oficiales
-                      </h3>
-
-                      <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
-                        <table className="w-full text-left enterprise-table">
-                          <thead>
-                            <tr>
-                              <th>Criterio de Evaluación</th>
-                              <th>Requisito Exigido</th>
-                              <th>Acreditación Empresa</th>
-                              <th>Estado & Faltantes</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-[#111827]">
-                            <tr>
-                              <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Liquidez</td>
-                              <td className="text-slate-600 dark:text-slate-400">&ge; {selectedTender.financial_compliance.liquidity.required.toFixed(2)}</td>
-                              <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.financial_compliance.liquidity.value.toFixed(2)}</td>
-                              <td>
-                                {selectedTender.financial_compliance.liquidity.passes ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                    <Check className="w-3.5 h-3.5" /> Cumple
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                    <X className="w-3.5 h-3.5" /> Falta Margen de {selectedTender.financial_compliance.liquidity.gap.toFixed(2)}
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Endeudamiento</td>
-                              <td className="text-slate-600 dark:text-slate-400">&le; {(selectedTender.financial_compliance.debt.max_allowed * 100).toFixed(0)}%</td>
-                              <td className="font-semibold text-slate-900 dark:text-slate-200">{(selectedTender.financial_compliance.debt.value * 100).toFixed(1)}%</td>
-                              <td>
-                                {selectedTender.financial_compliance.debt.passes ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                    <Check className="w-3.5 h-3.5" /> Cumple
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                    <X className="w-3.5 h-3.5" /> Excede por {(selectedTender.financial_compliance.debt.gap * 100).toFixed(1)}%
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="font-medium text-slate-900 dark:text-slate-200">Experiencia RUP (SMMLV)</td>
-                              <td className="text-slate-600 dark:text-slate-400">{selectedTender.experience_compliance.smmlv_required} SMMLV</td>
-                              <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.experience_compliance.smmlv_accumulated} SMMLV</td>
-                              <td>
-                                {selectedTender.experience_compliance.passes ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                    <Check className="w-3.5 h-3.5" /> Cumple
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                                    <AlertTriangle className="w-3.5 h-3.5" /> Faltan {selectedTender.experience_compliance.smmlv_gap.toFixed(1)} SMMLV
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
                     </div>
+                  ) : (
+                    /* BLOQUE DE RESTRICCIÓN PARA PLAN EXPLORADOR RUP (FREE) */
+                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
+                        <Lock className="w-6 h-6" />
+                      </div>
+                      <div className="max-w-md mx-auto space-y-1.5">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
+                          FUNCIÓN EXCLUSIVA PLAN PYME CONTRATISTA
+                        </span>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
+                          Matriz Financiera & Diagnóstico Exacto de Brechas RUP
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                          Conoce con precisión matemática los faltantes en liquidez, endeudamiento y experiencia SMMLV de tu empresa frente al pliego oficial, con auditoría legal de requisitos subsanables.
+                        </p>
+                      </div>
 
-                  </div>
+                      {/* Mockup difuminado de la matriz */}
+                      <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 max-w-md mx-auto blur-[2px] select-none space-y-2">
+                        <div className="flex justify-between border-b pb-1">
+                          <span>Índice de Liquidez (Exigido: ≥ 1.50)</span>
+                          <span className="font-bold text-emerald-600">Cumple (2.40)</span>
+                        </div>
+                        <div className="flex justify-between border-b pb-1">
+                          <span>Índice de Endeudamiento (Exigido: ≤ 70%)</span>
+                          <span className="font-bold text-rose-600">Excede por 8.2%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Experiencia RUP en SMMLV</span>
+                          <span className="font-bold text-amber-600">Faltan 145 SMMLV</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => triggerPlanGate('exact_gap_diagnosis')}
+                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-2 transition-colors"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Desbloquear Matriz & Diagnóstico con Plan Pyme</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )
                 )}
 
                 {/* PESTAÑA 2: ASISTENTE LEGAL & PLIEGOS (IA GEMINI) */}
@@ -2276,35 +2384,80 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
 
                 {/* PESTAÑA 3: CHECKLIST & DOCUMENTOS EXIGIDOS */}
                 {detailTab === 'checklist' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <ShieldCheck className="w-4 h-4 text-emerald-600" /> Puntos Fuertes Acreditados
-                      </h4>
-                      <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                        {selectedTender.reasons.map((r, i) => (
-                          <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span>
-                            <span>{r}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                  planLimits.hasChecklistDocs ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" /> Puntos Fuertes Acreditados
+                        </h4>
+                        <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                          {selectedTender.reasons.map((r, i) => (
+                            <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span>
+                              <span>{r}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
 
-                    <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <FileText className="w-4 h-4 text-blue-600" /> Checklist de Documentos Exigidos
-                      </h4>
-                      <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                        {selectedTender.required_documents.map((d, i) => (
-                          <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <span>{d}</span>
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
+                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-blue-600" /> Checklist de Documentos Exigidos
+                        </h4>
+                        <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                          {selectedTender.required_documents.map((d, i) => (
+                            <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 flex-shrink-0" />
+                              <span>{d}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* BLOQUE DE RESTRICCIÓN DE CHECKLIST PARA PLAN GRATUITO */
+                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
+                        <Lock className="w-6 h-6" />
+                      </div>
+                      <div className="max-w-md mx-auto space-y-1.5">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
+                          FUNCIÓN EXCLUSIVA PLAN PYME CONTRATISTA
+                        </span>
+                        <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
+                          Checklist de Documentos Exigidos & Puntos Fuertes
+                        </h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                          Auditoría automática de los pliegos conforme al Decreto 1082 de 2015. Identifica los documentos jurídicos, financieros y técnicos que tu empresa debe adjuntar para no ser rechazada.
+                        </p>
+                      </div>
+
+                      {/* Mockup difuminado del checklist */}
+                      <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 max-w-md mx-auto blur-[2px] select-none space-y-2 text-left">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Certificado RUP Vigente expedido por Cámara de Comercio</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Garantía de Seriedad de la Oferta (10% del Presupuesto)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Carta de Presentación de la Propuesta (Anexo N° 1)</span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => triggerPlanGate('checklist_docs')}
+                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-2 transition-colors"
+                      >
+                        <CheckSquare className="w-4 h-4" />
+                        <span>Desbloquear Checklist con Plan Pyme</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )
                 )}
 
               </div>
@@ -2330,6 +2483,20 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           company={company}
           tender={selectedTender}
           signedLetter={signedLetters[selectedTender.id] || null}
+          dossierDocs={dossierDocsMap[selectedTender.id]}
+          onDocListChange={(docs) => {
+            setDossierDocsMap(prev => ({
+              ...prev,
+              [selectedTender.id]: docs
+            }));
+          }}
+          userAttachments={dossierAttachmentsMap[selectedTender.id] || {}}
+          onAttachmentsChange={(atts) => {
+            setDossierAttachmentsMap(prev => ({
+              ...prev,
+              [selectedTender.id]: atts
+            }));
+          }}
           onSignedLetterChange={(file) => {
             setSignedLetters(prev => {
               const updated = { ...prev };
@@ -2341,9 +2508,18 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
               return updated;
             });
           }}
+          onOpenVault={() => setIsCompanyVaultOpen(true)}
           onStartSubmission={() => setIsSubmissionWizardOpen(true)}
         />
       )}
+
+      {/* MODAL BÓVEDA DOCUMENTAL EMPRESARIAL */}
+      <CompanyVaultModal
+        isOpen={isCompanyVaultOpen}
+        onClose={() => setIsCompanyVaultOpen(false)}
+        company={company}
+        onVaultUpdated={(updated) => setVaultDocs(updated)}
+      />
 
       {/* MODAL ASISTENTE INTERACTIVO DE RADICACIÓN SECOP */}
       {selectedTender && (
@@ -2353,6 +2529,14 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           company={company}
           tender={selectedTender}
           signedLetter={signedLetters[selectedTender.id] || null}
+          dossierDocs={dossierDocsMap[selectedTender.id]}
+          userAttachments={dossierAttachmentsMap[selectedTender.id] || {}}
+          onAttachmentsChange={(atts) => {
+            setDossierAttachmentsMap(prev => ({
+              ...prev,
+              [selectedTender.id]: atts
+            }));
+          }}
           onSignedLetterChange={(file) => {
             setSignedLetters(prev => {
               const updated = { ...prev };
@@ -2550,6 +2734,76 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                 </div>
               </div>
 
+              {/* 4. REPRESENTACIÓN LEGAL Y DATOS DE NOTIFICACIÓN OFICIAL */}
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+                <h4 className="font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider text-[11px] mb-2">
+                  4. Representación Legal y Notificaciones Oficiales
+                </h4>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Nombre del Representante Legal</label>
+                    <input 
+                      type="text" 
+                      value={formCompany.legal_rep_name || ''}
+                      onChange={e => setFormCompany({...formCompany, legal_rep_name: e.target.value})}
+                      placeholder="Ej: Carlos Alberto Gómez Mendoza"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Cédula del Representante Legal (C.C.)</label>
+                    <input 
+                      type="text" 
+                      value={formCompany.legal_rep_id || ''}
+                      onChange={e => setFormCompany({...formCompany, legal_rep_id: e.target.value})}
+                      placeholder="Ej: 1.018.456.789"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Correo Electrónico para Licitaciones</label>
+                    <input 
+                      type="email" 
+                      value={formCompany.email || ''}
+                      onChange={e => setFormCompany({...formCompany, email: e.target.value})}
+                      placeholder="Ej: licitaciones@miempresa.com"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Teléfono / Celular de Notificación</label>
+                    <input 
+                      type="tel" 
+                      value={formCompany.phone || ''}
+                      onChange={e => setFormCompany({...formCompany, phone: e.target.value})}
+                      placeholder="Ej: (+57) 310 123 4567"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Ciudad / Municipio Principal</label>
+                    <input 
+                      type="text" 
+                      value={formCompany.city || ''}
+                      onChange={e => setFormCompany({...formCompany, city: e.target.value})}
+                      placeholder="Ej: Bogotá D.C."
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-400 mb-1 font-medium">Dirección Comercial Sede Principal</label>
+                    <input 
+                      type="text" 
+                      value={formCompany.address || ''}
+                      onChange={e => setFormCompany({...formCompany, address: e.target.value})}
+                      placeholder="Ej: Carrera 7 # 71-21 Torre B Of. 502"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-slate-900 dark:text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* BOTONES ACCIÓN MODAL */}
               <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
                 <button
@@ -2581,11 +2835,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         onSuccess={(user, isNewUser) => {
           setUserSession({ email: user.email, companyName: user.companyName });
           if (user.companyName || user.nit) {
-            setCompany(prev => ({
-              ...prev,
-              name: user.companyName || prev.name,
-              nit: user.nit || prev.nit
-            }));
+            setCompany(prev => {
+              const updated = {
+                ...prev,
+                name: user.companyName || prev.name,
+                nit: user.nit || prev.nit
+              };
+              storeCompanyProfile(updated);
+              return updated;
+            });
             setFormCompany(prev => ({
               ...prev,
               name: user.companyName || prev.name,
@@ -2608,6 +2866,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         onComplete={(newCompanyData) => {
           setCompany(newCompanyData);
           setFormCompany(newCompanyData);
+          storeCompanyProfile(newCompanyData);
           setIsOnboardingOpen(false);
         }}
       />
@@ -2639,6 +2898,16 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         companyNit={company.nit}
         companyName={company.name}
       />
+
+      {/* MODAL SIMULADOR Y ESTRUCTURADOR AVANZADO DE CONSORCIOS (PLAN ENTERPRISE) */}
+      {selectedTender && (
+        <ConsortiumSimulatorModal
+          isOpen={isConsortiumModalOpen}
+          onClose={() => setIsConsortiumModalOpen(false)}
+          tender={selectedTender as any}
+          company={company}
+        />
+      )}
 
     </div>
   );

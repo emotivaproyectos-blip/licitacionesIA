@@ -24,7 +24,7 @@ export const SAAS_PLANS: Plan[] = [
       'Hasta 5 evaluaciones de licitaciones por mes',
       '1 Usuario administrador',
       'Buscador SECOP II básico',
-      'Diagnóstico financiero de Liquidez y Endeudamiento',
+      'Compatibilidad general y presupuesto oficial',
     ]
   },
   {
@@ -38,7 +38,8 @@ export const SAAS_PLANS: Plan[] = [
       'Evaluaciones de compatibilidad ILIMITADAS',
       '3 Usuarios de la empresa',
       'Ingesta en tiempo real SECOP I, II y Datos Abiertos',
-      'Diagnóstico exacto de brechas ("¿Qué le falta a tu empresa?")',
+      'Matriz Financiera & Diagnóstico exacto de brechas',
+      'Checklist automatizado de documentos exigidos',
       'Asistente RAG conversacional sobre pliegos (Gemini 1.5 Pro)',
       'Generación de Expediente de Postulación en 1 Clic (Anexo N° 1)',
     ]

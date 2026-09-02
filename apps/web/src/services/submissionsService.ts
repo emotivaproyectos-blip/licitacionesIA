@@ -67,122 +67,9 @@ export interface ApplicationRecord {
 const STORAGE_KEY = 'licitia_applications_history_v1';
 
 /**
- * Registros iniciales con procesos reales de SECOP I y SECOP II
+ * Historial inicial vacío para producción (Solo se guardan postulaciones reales radicadas)
  */
-const DEFAULT_APPLICATIONS: ApplicationRecord[] = [
-  {
-    id: 'app-epm-4100000311',
-    tenderId: 'CO1.REQ.10377633',
-    processNumber: '4100000311',
-    entityName: 'EMPRESAS PUBLICAS DE MEDELLIN E.S.P.',
-    entityNit: '890.904.996-1',
-    title: 'Prestación de servicios integrales de soporte tecnológico y consultoría para infraestructura de operaciones',
-    sourcePlatform: 'SECOP_II',
-    budgetCop: 152998133.0,
-    proposedValue: 148500000.0,
-    radicadoCode: 'CO1.OFR.10234378',
-    submittedAt: '2026-08-14 10:24 AM',
-    closingDate: '2026-09-15T17:00:00Z',
-    department: 'Antioquia',
-    processUrl: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10234378',
-    contractType: 'Licitación Pública (LP)',
-    status: 'INFORME_PRELIMINAR',
-    entityResponse: {
-      hasResponse: true,
-      responseType: 'INFORME_PRELIMINAR',
-      title: 'Informe Preliminar de Evaluación y Calificación N° 1 Publicado',
-      summary: 'El Comité Evaluador de EPM publicó el informe preliminar de evaluación. La empresa cumple el 100% de los requisitos jurídicos, financieros y de experiencia RUP.',
-      responseDate: '2026-08-17 04:30 PM',
-      scoreAwarded: '100.0 / 100.0 Puntos',
-      eligibilityRank: '1° Orden de Elegibilidad (Primer Lugar)',
-      actionRequired: 'Plazo abierto para observaciones al informe preliminar antes de la audiencia de adjudicación.',
-      actionDeadline: '2026-08-22 05:00 PM',
-      isWinner: true,
-      officialDocUrl: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10234378'
-    },
-    timeline: [
-      { title: 'Radicación de Oferta', date: '14 Ago 2026', description: 'Oferta registrada con radicado CO1.OFR.10234378', status: 'completed' },
-      { title: 'Cierre y Apertura de Sobres', date: '15 Ago 2026', description: 'Apertura de ofertas económicas en SECOP II', status: 'completed' },
-      { title: 'Informe Preliminar de Evaluación', date: '17 Ago 2026', description: 'Calificación 100/100 Pts - 1° Orden de Elegibilidad', status: 'completed' },
-      { title: 'Audiencia de Adjudicación', date: '25 Ago 2026', description: 'Audiencia pública definitiva de adjudicación', status: 'current' }
-    ],
-    lastSyncedAt: new Date().toISOString()
-  },
-  {
-    id: 'app-silvia-cauca-003',
-    tenderId: 'SECOP1_MS-MC-SIP-003-2026',
-    processNumber: 'MS-MC-SIP-003-2026',
-    entityName: 'CAUCA - ALCALDÍA MUNICIPIO DE SILVIA',
-    entityNit: '891.500.890-3',
-    title: 'Servicio de consultoría, interventoría y soporte tecnológico para la modernización institucional',
-    sourcePlatform: 'SECOP_I',
-    budgetCop: 240000000.0,
-    proposedValue: 236400000.0,
-    radicadoCode: 'RAD-SECOP1-2026-471092',
-    submittedAt: '2026-08-12 02:15 PM',
-    closingDate: '2026-09-02T16:00:00Z',
-    department: 'Cauca',
-    processUrl: 'https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=MS-MC-SIP-003-2026',
-    contractType: 'Selección Abreviada Menor Cuantía',
-    status: 'SUBSANACION_REQUERIDA',
-    entityResponse: {
-      hasResponse: true,
-      responseType: 'REQUERIMIENTO_SUBSANACION',
-      title: 'Requerimiento de Subsanación Documental Emitido por la Entidad',
-      summary: 'La entidad solicita allegar la certificación bancaria con fecha de expedición no mayor a 30 días calendario y la tarjeta profesional del contador firmante.',
-      responseDate: '2026-08-16 11:00 AM',
-      scoreAwarded: 'Habilitación Condicionada a Subsanación',
-      actionRequired: 'Cargar la certificación bancaria actualizada y tarjeta profesional en el portal antes del vencimiento del término legal.',
-      actionDeadline: '2026-08-20 05:00 PM',
-      isWinner: false,
-      officialDocUrl: 'https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=MS-MC-SIP-003-2026'
-    },
-    timeline: [
-      { title: 'Radicación de Oferta', date: '12 Ago 2026', description: 'Oferta radicada bajo constancia RAD-SECOP1-2026-471092', status: 'completed' },
-      { title: 'Requerimiento de Subsanación', date: '16 Ago 2026', description: 'Notificación de documento habilitante pendiente', status: 'current' },
-      { title: 'Informe Definitivo de Habilitación', date: '21 Ago 2026', description: 'Verificación final de requisitos subsanados', status: 'pending' },
-      { title: 'Adjudicación / Contrato', date: '28 Ago 2026', description: 'Suscripción del acto de adjudicación', status: 'pending' }
-    ],
-    lastSyncedAt: new Date().toISOString()
-  },
-  {
-    id: 'app-puerto-wilches-135',
-    tenderId: 'CO1.REQ.10393129',
-    processNumber: 'CONTRATO 135-2026',
-    entityName: 'ESE EDMUNDO GERMAN ARIAS DUARTE DE PUERTO WILCHES',
-    entityNit: '890.208.544-7',
-    title: 'Servicio especializado de consultoría y gestión operativa institucional en salud y tecnología',
-    sourcePlatform: 'SECOP_II',
-    budgetCop: 15050000.0,
-    proposedValue: 14900000.0,
-    radicadoCode: 'CO1.OFR.10249538',
-    submittedAt: '2026-08-10 09:40 AM',
-    closingDate: '2026-09-18T17:00:00Z',
-    department: 'Santander',
-    processUrl: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10249538',
-    contractType: 'Concurso de Méritos Abierto (CMA)',
-    status: 'EN_EVALUACION',
-    entityResponse: {
-      hasResponse: false,
-      responseType: 'EN_REVISION',
-      title: 'Propuesta en Proceso de Revisión por el Comité Técnico Evaluador',
-      summary: 'La oferta fue recibida a conformidad en la plataforma SECOP II. El comité evaluador se encuentra analizando la capacidad técnica y metodológica.',
-      responseDate: 'En Evaluación Activa',
-      scoreAwarded: 'Pendiente de Publicación de Informe',
-      actionRequired: 'Sin acciones requeridas por el momento. Próxima publicación de informe preliminar programada.',
-      actionDeadline: '2026-08-25',
-      isWinner: false,
-      officialDocUrl: 'https://community.secop.gov.co/Public/Tendering/OpportunityDetail/Index?noticeUID=CO1.NTC.10249538'
-    },
-    timeline: [
-      { title: 'Radicación de Oferta', date: '10 Ago 2026', description: 'Expediente completo registrado en SECOP II', status: 'completed' },
-      { title: 'Evaluación Técnica & Financiera', date: '11-24 Ago 2026', description: 'Revisión de criterios de habilitación y metodología', status: 'current' },
-      { title: 'Publicación de Informe Preliminar', date: '25 Ago 2026', description: 'Publicación de puntajes en SECOP II', status: 'pending' },
-      { title: 'Adjudicación', date: '01 Sep 2026', description: 'Audiencia pública de adjudicación', status: 'pending' }
-    ],
-    lastSyncedAt: new Date().toISOString()
-  }
-];
+const DEFAULT_APPLICATIONS: ApplicationRecord[] = [];
 
 function getStorageKey(companyNit?: string): string {
   if (companyNit && companyNit.trim()) {
@@ -193,9 +80,8 @@ function getStorageKey(companyNit?: string): string {
 }
 
 /**
- * Carga el historial completo de postulaciones para la empresa activa desde localStorage.
- * Si es la empresa de prueba por defecto (901.452.890-1) carga los datos demo si no hay previos.
- * Si es una cuenta o empresa nueva, inicia con lista vacía.
+ * Carga el historial completo de postulaciones reales para la empresa activa desde localStorage.
+ * Purga automáticamente cualquier registro de demostración previo.
  */
 export function getApplicationsHistory(companyNit?: string): ApplicationRecord[] {
   try {
@@ -203,20 +89,23 @@ export function getApplicationsHistory(companyNit?: string): ApplicationRecord[]
     const raw = localStorage.getItem(key);
     
     if (!raw) {
-      // Solo la empresa de demostración predeterminada arranca con procesos demo
-      const isDefaultDemoCompany = !companyNit || companyNit.replace(/[^a-zA-Z0-9]/g, '') === '9014528901';
-      if (isDefaultDemoCompany) {
-        localStorage.setItem(key, JSON.stringify(DEFAULT_APPLICATIONS));
-        return DEFAULT_APPLICATIONS;
-      }
       return [];
     }
 
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
+    // Purgar postulaciones demo anteriores
+    const realApps = parsed.filter(app => 
+      Boolean(app && app.id && !app.id.startsWith('app-epm-') && !app.id.startsWith('app-mintic-') && !app.id.startsWith('app_demo_'))
+    );
+
+    if (realApps.length !== parsed.length) {
+      localStorage.setItem(key, JSON.stringify(realApps));
+    }
+
     // Sanitizar URLs de registros anteriores si quedaron con enlaces de prueba
-    return parsed.map(app => {
+    return realApps.map(app => {
       const safeUrl = resolveSecopUrl(app.sourcePlatform, app.processUrl, app.processNumber, app.tenderId);
       return {
         ...app,

@@ -18,6 +18,33 @@ export interface CompanyData {
   interest_expense: number;
   smmlv_experience: number;
   unspsc_codes: string[];
+  email?: string;
+  phone?: string;
+  city?: string;
+  address?: string;
+  legal_rep_name?: string;
+  legal_rep_id?: string;
+}
+
+/**
+ * Convierte una cadena base64 dataURL a un Blob binario real
+ */
+export function dataUrlToBlob(dataUrl: string): Blob | null {
+  try {
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return null;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'application/pdf';
+    const binary = atob(parts[1]);
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      array[i] = binary.charCodeAt(i);
+    }
+    return new Blob([array], { type: mime });
+  } catch (err) {
+    console.warn('Error al decodificar dataURL a Blob:', err);
+    return null;
+  }
 }
 
 export interface TenderData {
@@ -36,14 +63,40 @@ export interface TenderData {
   status: string;
   unspsc_codes: string[];
   source_platform: 'SECOP_I' | 'SECOP_II';
+  contract_type?: string;
+  description?: string;
   process_url?: string;
   min_liquidity_required?: number;
   max_debt_allowed?: number;
   min_smmlv_required?: number;
 }
 
+export type DocCategory = 'juridico' | 'financiero' | 'tecnico' | 'economico';
+export type DocSource = 'agent_generated' | 'user_attached' | 'pliego_reference';
+
+export interface RequiredDossierDoc {
+  id: string;
+  title: string;
+  category: DocCategory;
+  mandatory: boolean;
+  source: DocSource;
+  template_type?: 'letter' | 'matrix' | 'checklist' | 'economy' | 'integrity' | 'mipyme' | 'anticorruption' | 'risk_matrix' | string;
+  filename: string;
+  legal_basis: string;
+  description: string;
+}
+
+export interface AttachedFileInfo {
+  file?: File | Blob;
+  fileDataUrl?: string;
+  name: string;
+  size?: number;
+  uploadedAt?: string;
+  isFromVault?: boolean;
+}
+
 export interface SignedLetterInfo {
-  file: File | Blob;
+  file?: File | Blob;
   name: string;
 }
 
@@ -200,16 +253,17 @@ export function generateLetterOfOffer(company: CompanyData, tender: TenderData):
   <p>
     Razón Social: ${company.name}<br>
     NIT: ${company.nit}<br>
-    Domicilio: Bogotá D.C., Colombia<br>
-    Dirección Electrónica de Notificación: licitaciones@emotivatech.co / contacto@${company.name.toLowerCase().replace(/[^a-z0-9]/g, '')}.com<br>
-    Teléfono de Contacto: (+57) 601 345 8900 / (+57) 310 890 1234
+    Domicilio: ${company.city || tender.city || 'Colombia'}<br>
+    Dirección: ${company.address || 'Sede Principal Registrada'}<br>
+    Dirección Electrónica de Notificación: ${company.email || `notificaciones@${company.name.toLowerCase().replace(/[^a-z0-9]/g, '') || 'empresa'}.com`}<br>
+    Teléfono de Contacto: ${company.phone || 'Línea de atención registrada'}
   </p>
 
   <div class="signature-box">
     <p><strong>REPRESENTANTE LEGAL</strong><br>
     Firma: _____________________________________<br>
-    Nombre: Representante Legal Designado<br>
-    C.C. N° ____________________ de Bogotá D.C.<br>
+    Nombre: ${company.legal_rep_name || 'Representante Legal'}<br>
+    C.C. N° ${company.legal_rep_id || '____________________'} de ${company.city || tender.city || 'Colombia'}<br>
     ${company.name} - NIT ${company.nit}
     </p>
   </div>
@@ -548,7 +602,204 @@ export function generateEconomicProposal(company: CompanyData, tender: TenderDat
 }
 
 // -----------------------------------------------------------------------------
-// 5. GUÍA DE RADICACIÓN EN SECOP
+// 5. GENERADOR DE CERTIFICADO DE INHABILIDADES E INCOMPATIBILIDADES
+// -----------------------------------------------------------------------------
+export function generateIntegrityCert(company: CompanyData, tender: TenderData): string {
+  const currentDate = new Date().toLocaleDateString('es-CO', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Certificado de Inhabilidades e Incompatibilidades</title>
+  <style>
+    body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11pt; line-height: 1.5; color: #1e293b; margin: 40px; }
+    h1 { font-size: 14pt; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 20px; color: #0f172a; }
+    .header { margin-bottom: 25px; }
+    p { margin-bottom: 12px; text-align: justify; }
+    .signature { margin-top: 50px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <p><strong>Fecha de Expedición:</strong> ${currentDate}</p>
+    <p><strong>Ciudad:</strong> ${tender.city || 'Bogotá D.C.'}, ${tender.department || 'Colombia'}</p>
+    <br>
+    <p>Señores:<br>
+    <strong>${tender.entity_name}</strong><br>
+    <strong>Proceso N°:</strong> ${tender.process_number}<br>
+    <strong>Objeto:</strong> ${tender.title}</p>
+  </div>
+
+  <h1>CERTIFICACIÓN DE INEXISTENCIA DE INHABILIDADES, INCOMPATIBILIDADES Y CONFLICTO DE INTERESES</h1>
+
+  <p>
+    Yo, en mi calidad de Representante Legal de la sociedad <strong>${company.name}</strong>, identificada con NIT <strong>${company.nit}</strong>, en cumplimiento de lo establecido en el Artículo 8° de la Ley 80 de 1993, la Ley 1150 de 2007, la Ley 1474 de 2011 (Estatuto Anticorrupción) y la Ley 2195 de 2022, de manera libre y voluntaria:
+  </p>
+
+  <p style="text-align: center; font-weight: bold; font-size: 12pt;">
+    CERTIFICO BAJO LA GRAVEDAD DEL JURAMENTO:
+  </p>
+
+  <ol>
+    <li>Que ni la persona jurídica que represento, ni sus socios, ni sus administradores, ni el suscrito Representante Legal, nos encontramos incursos en ninguna de las causales de inhabilidad, incompatibilidad o prohibición para contratar con el Estado Colombiano consagradas en la Constitución Política y las leyes aplicables.</li>
+    <li>Que la empresa no se encuentra reportada en el Boletín de Responsables Fiscales de la Contraloría General de la República, ni registra antecedentes disciplinarios en la Procuraduría General de la Nación, ni antecedentes penales o de medidas correctivas en la Policía Nacional.</li>
+    <li>Que no existe conflicto de intereses directo o indirecto con los funcionarios públicos encargados de la estructuración, evaluación y adjudicación del presente proceso contractual.</li>
+    <li>Que nos comprometemos a mantener indemne a la entidad contratante y a comunicar de inmediato cualquier hecho sobreviniente que pudiere afectar esta condición.</li>
+  </ol>
+
+  <div class="signature">
+    <p>Cordialmente,</p>
+    <br><br>
+    <p>_____________________________________________</p>
+    <p><strong>REPRESENTANTE LEGAL</strong><br>
+    Nombre: ${company.legal_rep_name || 'Representante Legal'}<br>
+    C.C. N° ${company.legal_rep_id || '____________________'} de ${company.city || tender.city || 'Colombia'}<br>
+    ${company.name}<br>
+    NIT: ${company.nit}</p>
+  </div>
+</body>
+</html>`;
+}
+
+// -----------------------------------------------------------------------------
+// 6. GENERADOR DE ACREDITACIÓN MIPYME E INDUSTRIA NACIONAL (LEY 2069 DE 2020)
+// -----------------------------------------------------------------------------
+export function generateMipymeCert(company: CompanyData, tender: TenderData): string {
+  const currentDate = new Date().toLocaleDateString('es-CO', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Certificación Mipyme e Industria Nacional</title>
+  <style>
+    body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 11pt; line-height: 1.5; color: #1e293b; margin: 40px; }
+    h1 { font-size: 13pt; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 20px; color: #0f172a; }
+    p { margin-bottom: 12px; text-align: justify; }
+    .signature { margin-top: 45px; }
+  </style>
+</head>
+<body>
+  <p><strong>Fecha:</strong> ${currentDate}</p>
+  <p>Señores:<br>
+  <strong>${tender.entity_name}</strong><br>
+  <strong>Proceso:</strong> ${tender.process_number}</p>
+
+  <h1>CERTIFICACIÓN DE CONDICIÓN MIPYME Y PROMOCIÓN DE LA INDUSTRIA NACIONAL (LEY 2069 DE 2020 - DECRETO 1860 DE 2021)</h1>
+
+  <p>
+    El suscrito Representante Legal y Contador Público / Revisor Fiscal de <strong>${company.name}</strong>, identificada con NIT <strong>${company.nit}</strong>, certifican que:
+  </p>
+
+  <p>
+    1. Conforme a los criterios de ingresos por actividades ordinarias anuales establecidos en el Decreto 957 de 2019 compilado en el Decreto 1074 de 2015, la empresa ostenta la calidad de <strong>MICRO / PEQUEÑA / MEDIANA EMPRESA (MIPYME)</strong> del sector <strong>${company.sector.toUpperCase()}</strong>.
+  </p>
+
+  <p>
+    2. Los bienes y servicios ofrecidos para el presente proceso contractual incorporan componente de <strong>ORIGEN NACIONAL COLOMBIANO</strong>, cumpliendo con los parámetros de la Ley 816 de 2003 y el Decreto 1860 de 2021 para el otorgamiento del puntaje de estímulo a la industria nacional y criterios de desempate.
+  </p>
+
+  <div class="signature">
+    <table style="width: 100%; border: none;">
+      <tr>
+        <td style="width: 50%; vertical-align: top;">
+          <p>_____________________________________</p>
+          <p><strong>Representante Legal</strong><br>
+          Nombre: ${company.legal_rep_name || 'Representante Legal'}<br>
+          C.C. N° ${company.legal_rep_id || '____________________'}<br>
+          ${company.name} - NIT: ${company.nit}</p>
+        </td>
+        <td style="width: 50%; vertical-align: top;">
+          <p>_____________________________________</p>
+          <p><strong>Contador Público / Revisor Fiscal</strong><br>
+          T.P. N° ____________-T</p>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+// -----------------------------------------------------------------------------
+// 7. GENERADOR DE MATRIZ DE RIESGOS (PARA OBRAS O SERVICIOS)
+// -----------------------------------------------------------------------------
+export function generateRiskMatrixDoc(company: CompanyData, tender: TenderData): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Matriz de Asignación de Riesgos</title>
+  <style>
+    body { font-family: 'Calibri', 'Arial', sans-serif; font-size: 10pt; line-height: 1.4; color: #1e293b; margin: 30px; }
+    h1 { font-size: 13pt; font-weight: bold; text-align: center; text-transform: uppercase; margin-bottom: 15px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+    th, td { border: 1px solid #cbd5e1; padding: 7px; text-align: left; font-size: 9pt; }
+    th { background-color: #f1f5f9; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>MATRIZ DE TIPIFICACIÓN, ESTIMACIÓN Y ASIGNACIÓN DE RIESGOS PREVISIBLES</h1>
+  <p><strong>Proceso:</strong> ${tender.process_number} | <strong>Entidad:</strong> ${tender.entity_name} | <strong>Proponente:</strong> ${company.name}</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Tipología de Riesgo</th>
+        <th>Descripción del Evento</th>
+        <th>Impacto / Probabilidad</th>
+        <th>Asignación</th>
+        <th>Mecanismo de Mitigación</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Riesgo Operacional</strong></td>
+        <td>Dificultades en suministro o disponibilidad de insumos en la zona</td>
+        <td>Medio / Baja</td>
+        <td>Contratista</td>
+        <td>Acuerdos previos con proveedores locales y plan de contingencia</td>
+      </tr>
+      <tr>
+        <td><strong>Riesgo Financiero</strong></td>
+        <td>Fluctuación cambiaria o variaciones inflacionarias</td>
+        <td>Bajo / Media</td>
+        <td>Contratista</td>
+        <td>A.I.U. estructurado y política de compras anticipadas</td>
+      </tr>
+      <tr>
+        <td><strong>Riesgo Regulatorio / Social</strong></td>
+        <td>Alteraciones de orden público o condiciones climáticas adversas</td>
+        <td>Alto / Baja</td>
+        <td>Compartido</td>
+        <td>Pólizas de seguro todo riesgo y coordinación con la interventoría</td>
+      </tr>
+      <tr>
+        <td><strong>Riesgo de Calidad</strong></td>
+        <td>No conformidad con las especificaciones técnicas del pliego</td>
+        <td>Alto / Muy Baja</td>
+        <td>Contratista</td>
+        <td>Control de calidad riguroso y ensayos de laboratorio certificados</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top: 20px;">El proponente <strong>${company.name}</strong> manifiesta conocer y aceptar la asignación de riesgos previsibles establecida en el pliego definitivo.</p>
+</body>
+</html>`;
+}
+
+// -----------------------------------------------------------------------------
+// 8. GUÍA DE RADICACIÓN EN SECOP
 // -----------------------------------------------------------------------------
 export function generateInstructions(company: CompanyData, tender: TenderData): string {
   const isSecop1 = tender.source_platform === 'SECOP_I';
@@ -590,39 +841,468 @@ ${isSecop1 ? `1. INGRESO A SECOP I (contratos.gov.co):
    - Haga clic en "Presentar Oferta" y descargue el Comprobante de Radicación de SECOP II.`}
 
 ================================================================================
-Generado automáticamente por Emotiva LicitIA - SaaS de Contratación Pública
+Expediente de Postulación Oficial generado y estructurado conforme a la Ley 80 de 1993 y Decreto 1082 de 2015.
 ================================================================================`;
 }
 
 // -----------------------------------------------------------------------------
-// 6. GENERADOR DEL PAQUETE ZIP COMPLETO (INCLUYE CARTA FIRMADA REAL)
+// 9. RESOLUCIÓN DINÁMICA DE DOCUMENTOS SEGÚN EL PLIEGO
+// -----------------------------------------------------------------------------
+export function parseSecopDocumentTable(rawText: string, tender: TenderData): RequiredDossierDoc[] {
+  const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  const docs: RequiredDossierDoc[] = [];
+
+  for (const line of lines) {
+    if (line.toLowerCase().includes('nombre del documento') || line.toLowerCase().includes('descargar') && line.length < 12) {
+      continue;
+    }
+    const cleanName = line.replace(/\t.*$/, '').replace(/Descargar.*$/i, '').trim();
+    if (!cleanName) continue;
+
+    const lower = cleanName.toLowerCase();
+    let cat: DocCategory = 'juridico';
+    let source: DocSource = 'pliego_reference';
+    let templateType: string | undefined = undefined;
+    let mandatory = false;
+    let desc = `Documento oficial del pliego de condiciones de SECOP: ${cleanName}`;
+    let legal = 'Pliego de Condiciones Oficial';
+
+    if (lower.includes('formato') || lower.includes('carta') || lower.includes('propuesta')) {
+      source = 'agent_generated';
+      templateType = lower.includes('econom') ? 'economy' : 'letter';
+      mandatory = true;
+      cat = lower.includes('econom') ? 'economico' : 'juridico';
+      desc = 'Formularios y formatos oficiales suministrados por la entidad para la presentación de la propuesta.';
+      legal = 'Anexo de Formatos Oficiales de la Convocatoria';
+    } else if (lower.includes('riesgo')) {
+      source = 'agent_generated';
+      templateType = 'risk_matrix';
+      mandatory = true;
+      cat = 'tecnico';
+      desc = 'Matriz oficial de tipificación, estimación y asignación de riesgos previsibles del proceso.';
+      legal = 'Ley 1150 de 2007 (Art. 4) / Manual de Riesgos CCE';
+    } else if (lower.includes('emprendimiento') || lower.includes('decreto 287') || lower.includes('mipyme')) {
+      source = 'agent_generated';
+      templateType = 'mipyme';
+      mandatory = true;
+      cat = 'juridico';
+      desc = 'Oficio y caracterización de emprendimiento e inclusión conforme al Decreto 287 de 2026.';
+      legal = 'Decreto 287 de 2026 / Criterios de Caracterización de Emprendimiento';
+    } else if (lower.includes('cdp') || lower.includes('paa')) {
+      cat = 'financiero';
+      source = 'pliego_reference';
+      desc = 'Certificado de disponibilidad presupuestal / Plan Anual de Adquisiciones de la entidad.';
+    } else if (lower.includes('estudio') || lower.includes('sector') || lower.includes('mercado')) {
+      cat = 'economico';
+      source = 'pliego_reference';
+      desc = 'Estudio de mercado, análisis de precios y análisis del sector económico.';
+    } else if (lower.includes('invitacion') || lower.includes('pliego')) {
+      cat = 'juridico';
+      source = 'pliego_reference';
+      desc = 'Pliego de condiciones definitivo / Invitación pública que rige la contratación.';
+    } else if (lower.includes('necesidad') || lower.includes('grafico') || lower.includes('tecnic')) {
+      cat = 'tecnico';
+      source = 'pliego_reference';
+      desc = 'Memoria de necesidad, justificación y anexos técnicos del proyecto.';
+    }
+
+    docs.push({
+      id: `doc_${cleanName.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()}`,
+      title: cleanName,
+      category: cat,
+      mandatory: mandatory,
+      source: source,
+      template_type: templateType,
+      filename: cleanName,
+      legal_basis: legal,
+      description: desc
+    });
+  }
+
+  // Si encontramos FORMATOS.docx, agregamos la versión firmada que el usuario debe anexar
+  const hasFormatos = docs.some(d => d.filename.toLowerCase().includes('formato') || d.title.toLowerCase().includes('formato'));
+  if (hasFormatos && !docs.some(d => d.id === 'formatos_firmados')) {
+    docs.splice(1, 0, {
+      id: 'formatos_firmados',
+      title: 'FORMATOS Diligenciados y Firmados por Representante Legal (PDF)',
+      category: 'juridico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'FORMATOS_Diligenciados_y_Firmados.pdf',
+      legal_basis: 'Requisito Habilitante No Subsanable de Voluntad Jurídica',
+      description: 'Debe descargar los formatos generados, firmarlos y adjuntarlos en PDF o formato digital.'
+    });
+  }
+
+  return docs;
+}
+
+export function getTenderRequiredDocuments(tender: TenderData, company?: CompanyData): RequiredDossierDoc[] {
+  const rawUrl = String(tender.process_url || '');
+  const processNum = String(tender.process_number || tender.secop_id || 'PROCESO');
+  const secopId = String(tender.secop_id || '');
+  const title = (tender.title || '').toLowerCase();
+  const contractType = (tender.contract_type || '').toLowerCase();
+  const budget = tender.budget_cop || 0;
+
+  // Si es una mínima cuantía
+  const isMinima = contractType.includes('mínima') || contractType.includes('minima') || budget < 50_000_000;
+  if (isMinima) {
+    return [
+      {
+        id: 'letter',
+        title: 'Carta de Presentación de la Oferta (Formato Oficial)',
+        category: 'juridico',
+        mandatory: true,
+        source: 'agent_generated',
+        template_type: 'letter',
+        filename: `01_Carta_Presentacion_${processNum}.doc`,
+        legal_basis: 'Invitación Pública de Mínima Cuantía / Decreto 1082 de 2015',
+        description: 'Carta formal de postulación, manifestación bajo gravedad de juramento y aceptación de condiciones.'
+      },
+      {
+        id: 'economy',
+        title: 'Formulario de Oferta Económica Desglosada',
+        category: 'economico',
+        mandatory: true,
+        source: 'agent_generated',
+        template_type: 'economy',
+        filename: `02_Oferta_Economica_${processNum}.doc`,
+        legal_basis: 'Criterio de Menor Precio Ofrecido (Decreto 1082 de 2015)',
+        description: `Propuesta económica desglosada por ${formatCOP(budget * 0.985)} COP.`
+      },
+      {
+        id: 'integrity',
+        title: 'Certificado de Inhabilidades e Incompatibilidades',
+        category: 'juridico',
+        mandatory: true,
+        source: 'agent_generated',
+        template_type: 'integrity',
+        filename: `03_Certificado_Inhabilidades_${processNum}.doc`,
+        legal_basis: 'Artículo 8 Ley 80 de 1993 y Ley 1474 de 2011',
+        description: 'Declaración juramentada de inexistencia de inhabilidades, incompatibilidades o prohibiciones legales.'
+      },
+      {
+        id: 'mipyme',
+        title: 'Certificación Mipyme e Industria Nacional',
+        category: 'juridico',
+        mandatory: true,
+        source: 'agent_generated',
+        template_type: 'mipyme',
+        filename: `04_Certificado_Mipyme_Ley2069_${processNum}.doc`,
+        legal_basis: 'Ley 2069 de 2020 / Decreto 1860 de 2021',
+        description: 'Certificación de tamaño empresarial Mipyme y componentes de origen nacional colombiano.'
+      },
+      {
+        id: 'rut_cert',
+        title: 'Registro Único Tributario (RUT) Actualizado',
+        category: 'financiero',
+        mandatory: true,
+        source: 'user_attached',
+        filename: 'RUT_Actualizado.pdf',
+        legal_basis: 'Capacidad Tributaria DIAN',
+        description: 'Copia del RUT con fecha de generación reciente y actividad económica correspondiente.'
+      },
+      {
+        id: 'camara_comercio',
+        title: 'Certificado de Existencia y Representación Legal',
+        category: 'juridico',
+        mandatory: true,
+        source: 'user_attached',
+        filename: 'Certificado_Existencia_Representacion_Legal.pdf',
+        legal_basis: 'Cámara de Comercio (Vigencia no mayor a 30 días)',
+        description: 'Certificado de matrícula mercantil expedido por la Cámara de Comercio.'
+      },
+      {
+        id: 'parafiscales_cert',
+        title: 'Certificado de Pago de Seguridad Social y Parafiscales',
+        category: 'juridico',
+        mandatory: true,
+        source: 'user_attached',
+        filename: 'Certificado_Aportes_Parafiscales_Ley789.pdf',
+        legal_basis: 'Ley 789 de 2002 (Art. 50)',
+        description: 'Paz y salvo de aportes parafiscales suscrito por Revisor Fiscal o Representante Legal.'
+      },
+      {
+        id: 'cedula_rep_legal',
+        title: 'Cédula del Representante Legal (Ampliada al 150%)',
+        category: 'juridico',
+        mandatory: true,
+        source: 'user_attached',
+        filename: 'Cedula_Representante_Legal_150.pdf',
+        legal_basis: 'Identificación Legal del Suscriptor',
+        description: 'Documento de identidad legible del representante legal debidamente ampliado.'
+      }
+    ];
+  }
+
+  const isObra = contractType.includes('obra') || title.includes('obra') || title.includes('construc') || title.includes('mantenimiento');
+  const isConsultoria = contractType.includes('consultor') || contractType.includes('interventor') || title.includes('consultor');
+
+  const docs: RequiredDossierDoc[] = [
+    {
+      id: 'letter',
+      title: 'Anexo 1 - Carta de Presentación de la Propuesta',
+      category: 'juridico',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'letter',
+      filename: `01_Anexo_1_Carta_Presentacion_${processNum}.doc`,
+      legal_basis: 'Decreto 1082 de 2015, Artículo 2.2.1.1.2.2.1',
+      description: 'Carta formal con identificación del proponente, manifestación juramentada y valor de la oferta.'
+    },
+    {
+      id: 'matrix',
+      title: 'Matriz de Capacidad Financiera & RUP',
+      category: 'financiero',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'matrix',
+      filename: `02_Matriz_Financiera_RUP_${processNum}.doc`,
+      legal_basis: 'Ley 1150 de 2007 (Art. 6)',
+      description: 'Cuadro comparativo oficial de Liquidez, Endeudamiento y Experiencia SMMLV auditada.'
+    },
+    {
+      id: 'economy',
+      title: 'Propuesta Económica Desglosada (A.I.U. e IVA)',
+      category: 'economico',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'economy',
+      filename: `03_Propuesta_Economica_${processNum}.doc`,
+      legal_basis: 'Manual de Formulación Económica Colombia Compra Eficiente',
+      description: `Desglose económico oficial por ${formatCOP(budget * 0.985)} COP.`
+    },
+    {
+      id: 'integrity',
+      title: 'Certificado de Inexistencia de Inhabilidades e Incompatibilidades',
+      category: 'juridico',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'integrity',
+      filename: `04_Certificado_Inhabilidades_${processNum}.doc`,
+      legal_basis: 'Ley 80 de 1993 (Art. 8) y Ley 1474 de 2011',
+      description: 'Certificación juramentada de ausencia de inhabilidades, incompatibilidades o conflicto de intereses.'
+    },
+    {
+      id: 'mipyme',
+      title: 'Certificación Mipyme y Promoción de Industria Nacional',
+      category: 'juridico',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'mipyme',
+      filename: `05_Certificado_Mipyme_Ley2069_${processNum}.doc`,
+      legal_basis: 'Ley 2069 de 2020 / Decreto 1860 de 2021',
+      description: 'Certificación para incentivo a la producción nacional y criterios de preferencia contractual.'
+    },
+    {
+      id: 'rup_cert',
+      title: 'Certificado RUP Vigente expedido por Cámara de Comercio',
+      category: 'financiero',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Certificado_RUP_CamaraComercio.pdf',
+      legal_basis: 'Ley 1150 de 2007 (Art. 6)',
+      description: 'Certificado RUP en firme con vigencia no mayor a 30 días calendario.'
+    },
+    {
+      id: 'camara_comercio',
+      title: 'Certificado de Existencia y Representación Legal',
+      category: 'juridico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Certificado_Existencia_Representacion_Legal.pdf',
+      legal_basis: 'Cámara de Comercio (Vigencia no mayor a 30 días)',
+      description: 'Certificado mercantil expedido por la Cámara de Comercio correspondiente.'
+    },
+    {
+      id: 'guarantee_policy',
+      title: 'Garantía de Seriedad de la Oferta (Póliza de Aseguradora / Banco)',
+      category: 'juridico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: `Poliza_Seriedad_Oferta_${processNum}.pdf`,
+      legal_basis: `Decreto 1082 de 2015 (Art. 2.2.1.2.3.1.2) - 10% del Presupuesto Oficial (${formatCOP(budget * 0.10)} COP)`,
+      description: `Póliza de seguros a favor de la entidad por ${formatCOP(budget * 0.10)} COP.`
+    },
+    {
+      id: 'parafiscales_cert',
+      title: 'Certificado de Pago de Seguridad Social y Parafiscales',
+      category: 'juridico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Certificado_Aportes_Parafiscales_Ley789.pdf',
+      legal_basis: 'Ley 789 de 2002 (Art. 50)',
+      description: 'Paz y salvo de aportes parafiscales de los últimos 6 meses suscrito por Revisor Fiscal o Representante.'
+    },
+    {
+      id: 'rut_cert',
+      title: 'Registro Único Tributario (RUT) Actualizado',
+      category: 'financiero',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'RUT_Actualizado.pdf',
+      legal_basis: 'Capacidad Tributaria DIAN',
+      description: 'Copia del RUT con actividad económica acorde al objeto contractual.'
+    },
+    {
+      id: 'cedula_rep_legal',
+      title: 'Cédula del Representante Legal (Ampliada al 150%)',
+      category: 'juridico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Cedula_Representante_Legal_150.pdf',
+      legal_basis: 'Identificación Legal del Suscriptor',
+      description: 'Copia legible del documento de identidad del representante legal.'
+    },
+    {
+      id: 'experiencia_soportes',
+      title: 'Certificaciones de Contratos y Experiencia Específica',
+      category: 'tecnico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Certificaciones_Experiencia_Acreditada.pdf',
+      legal_basis: 'Requisitos Habilitantes de Experiencia RUP',
+      description: 'Actas de liquidación o certificaciones de contratos similares ejecutados a satisfacción.'
+    }
+  ];
+
+  if (isObra) {
+    docs.splice(5, 0, {
+      id: 'risk_matrix',
+      title: 'Matriz de Tipificación y Asignación de Riesgos Previsibles',
+      category: 'tecnico',
+      mandatory: true,
+      source: 'agent_generated',
+      template_type: 'risk_matrix',
+      filename: `06_Matriz_Riesgos_${processNum}.doc`,
+      legal_basis: 'Ley 1150 de 2007 (Art. 4) / Manual de Riesgos CCE',
+      description: 'Matriz oficial de tipificación y asignación de riesgos previsibles.'
+    });
+  }
+
+  if (isConsultoria) {
+    docs.push({
+      id: 'team_resumes',
+      title: 'Hojas de Vida del Equipo de Trabajo Clave con Soportes',
+      category: 'tecnico',
+      mandatory: true,
+      source: 'user_attached',
+      filename: 'Hojas_de_Vida_Equipo_Clave.pdf',
+      legal_basis: 'Concurso de Méritos / Criterios Técnicos',
+      description: 'Hojas de vida de la función pública y certificaciones del Director y profesionales.'
+    });
+  }
+
+  return docs;
+}
+
+// -----------------------------------------------------------------------------
+// 10. GENERADOR DEL PAQUETE ZIP COMPLETO MULTIDOCUMENTO
 // -----------------------------------------------------------------------------
 export async function generateDossierZip(
   company: CompanyData, 
-  tender: TenderData,
-  signedLetter?: SignedLetterInfo | null
+  tender: TenderData, 
+  options?: {
+    signedLetter?: SignedLetterInfo | null;
+    attachedFiles?: Record<string, AttachedFileInfo>;
+    customDocs?: RequiredDossierDoc[];
+  } | SignedLetterInfo | null
 ): Promise<Blob> {
   const zip = new JSZip();
-
   const folderName = `Expediente_${tender.process_number.replace(/[^a-zA-Z0-9_-]/g, '_')}_${company.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
-  const folder = zip.folder(folderName) || zip;
+  const root = zip.folder(folderName) || zip;
 
-  // 1. Carta de Presentación: Si el usuario cargó su carta firmada real, se incluye ese archivo
-  if (signedLetter && signedLetter.file) {
-    const fileExt = signedLetter.name.includes('.') ? signedLetter.name.split('.').pop() : 'pdf';
-    folder.file(`01_Anexo_1_Carta_Presentacion_Firmada.${fileExt}`, signedLetter.file);
+  // Manejo de compatibilidad con firma previa o nuevo formato
+  let signedLetterInfo: SignedLetterInfo | null = null;
+  let attachedMap: Record<string, AttachedFileInfo> = {};
+  let docsList: RequiredDossierDoc[] = [];
+
+  if (options && 'name' in options && !('attachedFiles' in options)) {
+    signedLetterInfo = options as SignedLetterInfo;
+    docsList = getTenderRequiredDocuments(tender, company);
+  } else if (options) {
+    signedLetterInfo = (options as any).signedLetter || null;
+    attachedMap = (options as any).attachedFiles || {};
+    docsList = (options as any).customDocs && (options as any).customDocs.length > 0 
+      ? (options as any).customDocs 
+      : getTenderRequiredDocuments(tender, company);
   } else {
-    folder.file('01_Anexo_1_Carta_Presentacion_Oferta.doc', generateLetterOfOffer(company, tender));
+    docsList = getTenderRequiredDocuments(tender, company);
   }
 
-  // 2. Matriz Financiera y RUP
-  folder.file('02_Matriz_Capacidad_Financiera_y_RUP.doc', generateFinancialMatrix(company, tender));
+  // Carpetas estructuradas
+  const folderJuridico = root.folder('01_Documentos_Juridicos');
+  const folderFinanciero = root.folder('02_Documentos_Financieros_y_RUP');
+  const folderTecnico = root.folder('03_Propuesta_Tecnica_y_Experiencia');
+  const folderEconomico = root.folder('04_Propuesta_Economica');
+  const folderAnexos = root.folder('05_Soportes_y_Garantias');
 
-  // 3. Checklist de Documentos
-  folder.file('03_Checklist_Documentos_Habilitantes.doc', generateChecklistDoc(company, tender));
+  // Procesar documentos generados por IA
+  for (const doc of docsList) {
+    if (doc.source === 'agent_generated') {
+      let content = '';
+      if (doc.template_type === 'letter' || doc.id === 'letter') {
+        content = generateLetterOfOffer(company, tender);
+        if (folderJuridico) folderJuridico.file(doc.filename, content);
+      } else if (doc.template_type === 'matrix' || doc.id === 'matrix') {
+        content = generateFinancialMatrix(company, tender);
+        if (folderFinanciero) folderFinanciero.file(doc.filename, content);
+      } else if (doc.template_type === 'economy' || doc.id === 'economy') {
+        content = generateEconomicProposal(company, tender);
+        if (folderEconomico) folderEconomico.file(doc.filename, content);
+      } else if (doc.template_type === 'integrity' || doc.id === 'integrity') {
+        content = generateIntegrityCert(company, tender);
+        if (folderJuridico) folderJuridico.file(doc.filename, content);
+      } else if (doc.template_type === 'mipyme' || doc.id === 'mipyme') {
+        content = generateMipymeCert(company, tender);
+        if (folderJuridico) folderJuridico.file(doc.filename, content);
+      } else if (doc.template_type === 'risk_matrix' || doc.id === 'risk_matrix') {
+        content = generateRiskMatrixDoc(company, tender);
+        if (folderTecnico) folderTecnico.file(doc.filename, content);
+      } else {
+        content = generateChecklistDoc(company, tender);
+        if (folderJuridico) folderJuridico.file(doc.filename, content);
+      }
+    }
+  }
 
-  // 4. Propuesta Económica
-  folder.file('04_Propuesta_Economica_Desglosada.doc', generateEconomicProposal(company, tender));
+  // Procesar carta firmada
+  if (signedLetterInfo) {
+    const ext = signedLetterInfo.name.includes('.') ? signedLetterInfo.name.split('.').pop() : 'pdf';
+    const payload = signedLetterInfo.file || new Blob([`Carta de presentacion firmada oficial: ${signedLetterInfo.name}`], { type: 'application/pdf' });
+    if (folderJuridico) {
+      folderJuridico.file(`01_Anexo_1_Carta_Presentacion_Firmada.${ext}`, payload);
+    }
+  }
+
+  // Procesar archivos adjuntos del usuario o vinculados de la bóveda
+  for (const [docId, attachInfo] of Object.entries(attachedMap)) {
+    if (!attachInfo) continue;
+    const payload = attachInfo.file || 
+      (attachInfo.fileDataUrl ? dataUrlToBlob(attachInfo.fileDataUrl) : null) || 
+      new Blob([`Documento oficial de ${attachInfo.name} para ${company.name}`], { type: 'application/pdf' });
+    
+    const targetDoc = docsList.find(d => d.id === docId);
+    const cat = targetDoc ? targetDoc.category : 'juridico';
+    const targetName = attachInfo.name || `${docId}.pdf`;
+
+    if (cat === 'juridico' && folderJuridico) {
+      folderJuridico.file(targetName, payload);
+    } else if (cat === 'financiero' && folderFinanciero) {
+      folderFinanciero.file(targetName, payload);
+    } else if (cat === 'tecnico' && folderTecnico) {
+      folderTecnico.file(targetName, payload);
+    } else if (cat === 'economico' && folderEconomico) {
+      folderEconomico.file(targetName, payload);
+    } else if (folderAnexos) {
+      folderAnexos.file(targetName, payload);
+    }
+  }
+
+  // Agregar Checklist maestro e Instrucciones de radicación
+  root.file('00_INSTRUCCIONES_RADICACION_SECOP.txt', generateInstructions(company, tender));
+  root.file('00_Checklist_Maestro_Habilitacion.doc', generateChecklistDoc(company, tender));
 
   return await zip.generateAsync({ type: 'blob' });
 }

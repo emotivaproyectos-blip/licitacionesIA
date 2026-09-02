@@ -11,7 +11,8 @@ import {
   FileCheck, 
   Radio, 
   Database,
-  ArrowRight
+  ArrowRight,
+  CheckSquare
 } from 'lucide-react';
 import { PlanId, PLAN_LIMITS_MAP } from '../services/planRestrictions';
 
@@ -21,6 +22,7 @@ export type GateFeatureType =
   | 'dossier_generator'
   | 'submission_1click'
   | 'exact_gap_diagnosis'
+  | 'checklist_docs'
   | 'realtime_secop'
   | 'addenda_monitoring_247'
   | 'advanced_consortium'
@@ -101,15 +103,27 @@ export const PlanGateModal: React.FC<PlanGateModalProps> = ({
       ]
     },
     exact_gap_diagnosis: {
-      title: 'Diagnóstico Exacto de Brechas ("¿Qué le falta a tu empresa?")',
+      title: 'Matriz Financiera & Diagnóstico Exacto de Brechas RUP',
       subtitle: 'Conoce con precisión matemática los faltantes en SMMLV, liquidez o códigos UNSPSC para habilitarte.',
       requiredPlan: 'pyme',
       icon: <ShieldCheck className="w-6 h-6 text-blue-500" />,
       highlights: [
-        'Cálculo exacto del margen faltante en SMMLV y ratios financieros',
+        'Matriz comparativa completa de indicadores financieros y RUP vs pliego',
+        'Cálculo exacto del margen faltante en SMMLV y ratios de liquidez y endeudamiento',
         'Identificación automática de códigos UNSPSC no acreditados en RUP',
-        'Estrategia personalizada de habilitación directa o Unión Temporal',
-        'Evaluaciones ILIMITADAS'
+        'Estrategia personalizada de habilitación directa o Unión Temporal'
+      ]
+    },
+    checklist_docs: {
+      title: 'Checklist de Documentos Exigidos & Puntos Fuertes',
+      subtitle: 'Auditoría automática de requisitos habilitantes conforme al pliego y Decreto 1082 de 2015.',
+      requiredPlan: 'pyme',
+      icon: <CheckSquare className="w-6 h-6 text-blue-500" />,
+      highlights: [
+        'Checklist detallado de documentos jurídicos, técnicos y financieros exigidos',
+        'Detección automática de puntos fuertes acreditados por tu empresa',
+        'Identificación de requisitos subsanables vs causales de rechazo del pliego',
+        'Evaluaciones de compatibilidad ILIMITADAS'
       ]
     },
     realtime_secop: {

@@ -953,3 +953,28 @@ Respecto a tu consulta sobre **${processNum}** ante **${entity}**, el proceso se
 2. Si presentas brechas de habilitación en RUP o índices, estructura una Unión Temporal con un socio complementario.`;
 }
 
+/**
+ * Consulta al Agente de Auditoría de Pliegos para extraer dinámicamente los documentos exigidos.
+ */
+export async function auditTenderDocumentsApi(
+  tenderData: any,
+  companyProfile?: any
+): Promise<any> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/v1/secop/audit-documents`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tender_data: tenderData,
+        company_profile: companyProfile
+      })
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Backend audit API fallback to local parser:', err);
+  }
+  return null;
+}
+

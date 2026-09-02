@@ -34,6 +34,7 @@ export interface PlanLimits {
   maxUsers: number;              // 1, 3 o Infinity
   allowedPlatforms: ('SECOP_I' | 'SECOP_II' | 'all')[];
   hasExactGapDiagnosis: boolean;
+  hasChecklistDocs: boolean;
   hasRagAssistant: boolean;
   hasDossierGenerator: boolean;
   has1ClickSubmission: boolean;
@@ -51,6 +52,7 @@ export const PLAN_LIMITS_MAP: Record<PlanId, PlanLimits> = {
     maxUsers: 1,
     allowedPlatforms: ['SECOP_II'],
     hasExactGapDiagnosis: false,
+    hasChecklistDocs: false,
     hasRagAssistant: false,
     hasDossierGenerator: false,
     has1ClickSubmission: false,
@@ -66,6 +68,7 @@ export const PLAN_LIMITS_MAP: Record<PlanId, PlanLimits> = {
     maxUsers: 3,
     allowedPlatforms: ['SECOP_I', 'SECOP_II', 'all'],
     hasExactGapDiagnosis: true,
+    hasChecklistDocs: true,
     hasRagAssistant: true,
     hasDossierGenerator: true,
     has1ClickSubmission: true,
@@ -81,6 +84,7 @@ export const PLAN_LIMITS_MAP: Record<PlanId, PlanLimits> = {
     maxUsers: Infinity,
     allowedPlatforms: ['SECOP_I', 'SECOP_II', 'all'],
     hasExactGapDiagnosis: true,
+    hasChecklistDocs: true,
     hasRagAssistant: true,
     hasDossierGenerator: true,
     has1ClickSubmission: true,

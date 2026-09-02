@@ -3,7 +3,7 @@ FastAPI Server - Plataforma SaaS Emotiva LicitIA SECOP I & II
 API REST principal con arquitectura limpia, OpenAPI docs, ingesta en vivo de SECOP I y II.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -15,7 +15,8 @@ load_dotenv()
 from app.core.ai_provider import AIModelFactory
 from app.modules.matching.engine import CompatibilityEngine, EvaluationResult
 from app.modules.secop.soda_client import SECOPDatosAbiertosClient, SECOPTenderDTO
-from app.modules.agents.workflows import ChatAgentNode
+from app.modules.agents.workflows import ChatAgentNode, DossierAuditAgentNode
+from app.modules.documents.rup_extractor import RUPExtractorService, ExtractedRupData
 
 app = FastAPI(
     title="Emotiva LicitIA - Public Procurement Intelligence API",
@@ -26,7 +27,14 @@ app = FastAPI(
 # Configuración CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://emotiva-licitia-api.onrender.com",
+    ],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -269,6 +277,53 @@ async def query_tender_assistant(payload: TenderQueryRequest):
         success=result.get("success", True),
         error_detail=result.get("error_detail")
     )
+
+@app.post("/api/v1/secop/audit-documents", tags=["Dossier & Audit Agent"])
+async def audit_tender_documents(payload: Dict[str, Any]):
+    """
+    Ejecuta el Agente Auditor de Pliegos SECOP.
+    Examina los requisitos del proceso, determina con precisión qué documentos puede generar el sistema
+    y qué archivos obligatorios debe adjuntar el contratista según el pliego de condiciones.
+    """
+    tender_data = payload.get("tender_data") or payload
+    company_profile = payload.get("company_profile")
+    provider = payload.get("provider", "google")
+    model = payload.get("model", "gemini-1.5-pro")
+
+    return await DossierAuditAgentNode.audit_tender(
+        tender_data=tender_data,
+        company_profile=company_profile,
+        provider=provider,
+        model=model
+    )
+
+class ExtractRupRequest(BaseModel):
+    text: str
+    filename: Optional[str] = "Certificado_RUP.pdf"
+
+@app.post("/api/v1/rup/extract", response_model=ExtractedRupData, tags=["RUP Extractor"])
+async def extract_rup_from_text(payload: ExtractRupRequest):
+    """
+    Extrae datos 100% reales y auditados de un Certificado RUP colombiano a partir de texto extraído.
+    Utiliza Gemini AI y reglas de Cámara de Comercio (Decreto 1082 de 2015).
+    """
+    if not payload.text or len(payload.text.strip()) < 10:
+        raise HTTPException(status_code=400, detail="El texto del documento RUP es insuficiente.")
+    return await RUPExtractorService.extract_rup_data_with_ai(payload.text, payload.filename)
+
+@app.post("/api/v1/rup/upload-extract", response_model=ExtractedRupData, tags=["RUP Extractor"])
+async def extract_rup_from_file(file: UploadFile = File(...)):
+    """
+    Recibe directamente el archivo PDF del Certificado RUP, extrae su texto nativo con PyMuPDF
+    y analiza sus cifras financieras, índices, SMMLV de contratos y códigos UNSPSC con IA.
+    """
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se admiten archivos en formato PDF.")
+    
+    file_bytes = await file.read()
+    extracted_text = RUPExtractorService.extract_text_from_pdf_bytes(file_bytes)
+    
+    return await RUPExtractorService.extract_rup_data_with_ai(extracted_text, file.filename)
 
 if __name__ == "__main__":
     import uvicorn

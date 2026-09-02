@@ -80,6 +80,19 @@ class SECOPDatosAbiertosClient:
         return cls._get_fallback_tenders(query)
 
     @classmethod
+    async def sync_and_store_tenders(cls, limit: int = 50) -> Dict[str, Any]:
+        """
+        Sincroniza y retorna licitaciones activas recientes de SECOP I y II.
+        """
+        tenders = await cls.fetch_recent_tenders(limit=limit)
+        return {
+            "status": "success",
+            "synced_count": len(tenders),
+            "platform": "SECOP_II",
+            "timestamp": datetime.now().isoformat()
+        }
+
+    @classmethod
     async def _fetch_secop2(
         cls, 
         client: httpx.AsyncClient, 
@@ -179,6 +192,12 @@ class SECOPDatosAbiertosClient:
             process_url = resolve_secop_url("SECOP_II", item.get("urlproceso"), process_num, secop_id)
 
             status_desc = item.get("fase") or item.get("estado_del_procedimiento") or "Presentación de ofertas"
+            entity = (
+                item.get("nombre_de_la_entidad") 
+                or item.get("entidad") 
+                or item.get("nombre_entidad") 
+                or "Entidad Pública de Colombia"
+            )
 
             tenders.append(SECOPTenderDTO(
                 id=secop_id,

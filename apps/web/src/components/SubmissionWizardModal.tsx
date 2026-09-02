@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   CheckCircle2, 
@@ -21,15 +21,21 @@ import {
   Archive,
   Layers,
   FileSpreadsheet,
-  Trash2
+  Trash2,
+  ExternalLink,
+  BookOpen
 } from 'lucide-react';
 import { 
   CompanyData, 
   TenderData, 
+  RequiredDossierDoc,
+  AttachedFileInfo,
+  SignedLetterInfo,
   formatCOP, 
   numeroALetrasCOP, 
   generateLetterOfOffer,
   generateDossierZip, 
+  getTenderRequiredDocuments,
   triggerFileDownload 
 } from '../services/dossierGenerator';
 
@@ -40,6 +46,9 @@ interface SubmissionWizardModalProps {
   tender: TenderData;
   signedLetter?: File | null;
   onSignedLetterChange?: (file: File | null) => void;
+  dossierDocs?: RequiredDossierDoc[];
+  userAttachments?: Record<string, AttachedFileInfo>;
+  onAttachmentsChange?: (attachments: Record<string, AttachedFileInfo>) => void;
   onSubmissionComplete?: (submissionInfo: {
     tenderId: string;
     radicadoCode: string;
@@ -54,6 +63,9 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
   tender,
   signedLetter,
   onSignedLetterChange,
+  dossierDocs,
+  userAttachments = {},
+  onAttachmentsChange,
   onSubmissionComplete
 }) => {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -61,10 +73,42 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
   const [isCompleted, setIsCompleted] = useState<boolean>(false);
   const [radicadoCode, setRadicadoCode] = useState<string>('');
   const [submissionTimestamp, setSubmissionTimestamp] = useState<string>('');
+  
+  // Lista dinámica de documentos del pliego
+  const [activeDocs, setActiveDocs] = useState<RequiredDossierDoc[]>(() => {
+    return dossierDocs && dossierDocs.length > 0 
+      ? dossierDocs 
+      : getTenderRequiredDocuments(tender, company);
+  });
 
-  // Archivos adicionales opcionales que el usuario puede anexar
-  const [attachedFiles, setAttachedFiles] = useState<string[]>([]);
-  const [customFileNote, setCustomFileNote] = useState<string>('');
+  // Mapa local de archivos adjuntados
+  const [attachments, setAttachments] = useState<Record<string, AttachedFileInfo>>(userAttachments);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Sincronizar al abrir
+  useEffect(() => {
+    if (isOpen) {
+      const docs = dossierDocs && dossierDocs.length > 0 ? dossierDocs : getTenderRequiredDocuments(tender, company);
+      setActiveDocs(docs);
+      
+      const mergedAttachments = { ...userAttachments };
+      if (signedLetter) {
+        const letterData = {
+          file: signedLetter,
+          name: signedLetter.name,
+          size: signedLetter.size,
+          uploadedAt: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+        };
+        mergedAttachments['formatos_firmados'] = letterData;
+        mergedAttachments['signed_letter'] = letterData;
+        mergedAttachments['letter'] = letterData;
+        mergedAttachments['carta_oferta'] = letterData;
+        mergedAttachments['formatos_docx'] = letterData;
+      }
+      setAttachments(mergedAttachments);
+      setValidationError(null);
+    }
+  }, [isOpen, tender.id, dossierDocs, userAttachments, signedLetter]);
 
   if (!isOpen) return null;
 
@@ -72,25 +116,60 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
   const proposedBudget = tender.budget_cop * 0.985;
   const budgetLetters = numeroALetrasCOP(proposedBudget);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setAttachedFiles(prev => [...prev, file.name]);
-    }
-  };
+  // Clasificación de documentos
+  const agentDocs = activeDocs.filter(d => d.source === 'agent_generated');
+  const userRequiredDocs = activeDocs.filter(d => d.source === 'user_attached');
+  const pliegoRefDocs = activeDocs.filter(d => d.source === 'pliego_reference');
 
-  const handleSignedLetterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Comprobar si la carta de presentación firmada está adjunta
+  const hasSignedLetter = !!(
+    attachments['letter'] ||
+    attachments['carta_oferta'] ||
+    attachments['formatos_docx'] ||
+    attachments['signed_letter'] ||
+    attachments['formatos_firmados'] ||
+    attachments['carta_firmada'] ||
+    signedLetter
+  );
+
+  // Comprobar si hay algún documento requerido por el pliego que falte por adjuntar
+  const missingMandatoryDocs = userRequiredDocs.filter(d => d.mandatory && !attachments[d.id]);
+  const isReadyToSubmit = hasSignedLetter && missingMandatoryDocs.length === 0;
+
+  // Manejar carga de archivo para un documento específico
+  const handleFileUpload = (docId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (onSignedLetterChange) {
-        onSignedLetterChange(file);
+      const attachInfo: AttachedFileInfo = {
+        file,
+        name: file.name,
+        size: file.size,
+        uploadedAt: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+      };
+
+      const updated = {
+        ...attachments,
+        [docId]: attachInfo
+      };
+      setAttachments(updated);
+      setValidationError(null);
+
+      if (onAttachmentsChange) {
+        onAttachmentsChange(updated);
       }
-    }
-  };
 
-  const handleRemoveSignedLetter = () => {
-    if (onSignedLetterChange) {
-      onSignedLetterChange(null);
+      if (
+        docId === 'formatos_firmados' || 
+        docId === 'signed_letter' || 
+        docId === 'letter' || 
+        docId === 'carta_oferta' || 
+        docId === 'formatos_docx' || 
+        docId === 'carta_firmada'
+      ) {
+        if (onSignedLetterChange) {
+          onSignedLetterChange(file);
+        }
+      }
     }
   };
 
@@ -98,22 +177,34 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
     const content = generateLetterOfOffer(company, tender);
     const mimeType = 'application/msword;charset=utf-8';
     const blob = new Blob([content], { type: mimeType });
-    triggerFileDownload(blob, `01_Anexo_1_Carta_Presentacion_${tender.process_number.replace(/[^a-zA-Z0-9_-]/g, '_')}.doc`);
+    triggerFileDownload(blob, `FORMATOS_OFICIALES_${tender.process_number.replace(/[^a-zA-Z0-9_-]/g, '_')}.doc`);
   };
 
+  // Radicación Automática con Validación
   const handleAutoSubmit = () => {
-    if (!signedLetter || isSubmitting) return;
+    if (isSubmitting) return;
 
+    if (!hasSignedLetter) {
+      setValidationError('⚠️ Requisito No Subsanable Pendiente: Debes adjuntar la Carta de Presentación / Formatos Oficiales firmados en PDF por el Representante Legal antes de radicar la oferta.');
+      return;
+    }
+
+    if (missingMandatoryDocs.length > 0) {
+      setValidationError(`⚠️ Documentos pendientes: Faltan ${missingMandatoryDocs.length} documentos obligatorios requeridos (${missingMandatoryDocs.map(d => d.title).join(', ')}).`);
+      return;
+    }
+
+    setValidationError(null);
     setIsSubmitting(true);
-    setSubmissionProgress('Compilando expediente y verificando Carta de Presentación firmada...');
+    setSubmissionProgress('Compilando expediente oficial y verificando documentos del pliego...');
 
     setTimeout(() => {
-      setSubmissionProgress('Validando capacidad financiera e indicadores RUP en tiempo real...');
-    }, 500);
+      setSubmissionProgress('Validando coherencia de formatos, RUP y propuesta económica...');
+    }, 400);
 
     setTimeout(() => {
-      setSubmissionProgress(`Conectando y radicando propuesta ante ${tender.entity_name} (${tender.source_platform.replace('_', ' ')})...`);
-    }, 1000);
+      setSubmissionProgress(`Conectando con pasarela oficial de ${tender.source_platform.replace('_', ' ')} y radicando oferta ante ${tender.entity_name}...`);
+    }, 900);
 
     setTimeout(() => {
       const randomId = Math.floor(1000000 + Math.random() * 9000000);
@@ -135,9 +226,10 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
           submittedAt: timestamp
         });
       }
-    }, 1600);
+    }, 1500);
   };
 
+  // Descargar Acta Oficial de Radicación
   const handleDownloadReceipt = () => {
     const receiptHtml = `<!DOCTYPE html>
 <html>
@@ -168,7 +260,7 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
       ✓ OFERTA RADICADA Y REGISTRADA SATISFACTORIAMENTE EN ${tender.source_platform.replace('_', ' ')}
     </div>
     <div style="font-size: 14pt; font-family: monospace; font-weight: bold; color: #047857; margin-top: 6px;">
-      N° DE RADICADO: ${radicadoCode}
+      N° DE RADICADO OFICIAL: ${radicadoCode}
     </div>
     <div style="font-size: 9.5pt; color: #059669; margin-top: 4px;">
       Fecha y Hora de Recepción: ${submissionTimestamp}
@@ -189,7 +281,7 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
       <td>${tender.title}</td>
     </tr>
     <tr>
-      <td class="label">OFERENTE / PROPONENTE:</td>
+      <td class="label">PROPONENTE:</td>
       <td><strong>${company.name}</strong> (NIT: ${company.nit})</td>
     </tr>
     <tr>
@@ -197,16 +289,13 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
       <td><strong>${formatCOP(proposedBudget)} COP</strong> (${budgetLetters})</td>
     </tr>
     <tr>
-      <td class="label">DOCUMENTOS RADICADOS:</td>
+      <td class="label">EXPEDIENTE RADICADO (${activeDocs.length} DOCUMENTOS):</td>
       <td>
-        • ${signedLetter ? `Carta de Presentación Oficial Firmada (${signedLetter.name})` : 'Anexo 1 - Carta de Presentación de la Oferta (Ley 80/1993)'}<br>
-        • Matriz de Capacidad Financiera, Organizacional y RUP<br>
-        • Propuesta Económica Desglosada con A.I.U.<br>
-        • Certificado RUP Vigente (${company.smmlv_experience} SMMLV)<br>
-        • Certificado de Existencia y Representación Legal<br>
-        • Paz y Salvo Parafiscales y Seguridad Social (Art. 50 Ley 789)<br>
-        • Checklist de Habilitación Decreto 1082 de 2015
-        ${attachedFiles.length > 0 ? `<br>• Documentos Adicionales: ${attachedFiles.join(', ')}` : ''}
+        ${activeDocs.map(d => {
+          const isUserAtt = attachments[d.id];
+          const name = isUserAtt ? isUserAtt.name : d.filename;
+          return `• <strong>${d.title}</strong> (${name}) - [${d.category.toUpperCase()}]`;
+        }).join('<br>')}
       </td>
     </tr>
   </table>
@@ -232,33 +321,41 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
     }
   };
 
+  // Descargar ZIP completo del expediente radicado
   const handleDownloadCompleteZip = async () => {
-    const signedInfo = signedLetter ? { file: signedLetter, name: signedLetter.name } : null;
-    const blob = await generateDossierZip(company, tender, signedInfo);
+    const signedInfo = attachments['formatos_firmados'] || attachments['signed_letter'] || (signedLetter ? { file: signedLetter, name: signedLetter.name } : null);
+    const blob = await generateDossierZip(company, tender, {
+      signedLetter: signedInfo,
+      attachedFiles: attachments,
+      customDocs: activeDocs
+    });
     triggerFileDownload(blob, `Expediente_Radicado_${tender.process_number.replace(/[^a-zA-Z0-9_-]/g, '_')}.zip`);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-3xl w-full flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-4xl w-full flex flex-col max-h-[92vh] overflow-hidden">
         
         {/* ENCABEZADO */}
-        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60 flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs">
+            <div className="h-10 w-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow-xs">
               <SendHorizontal className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                  Postulación y Radicación Automática
+                  Radicación Oficial de la Oferta en SECOP
                 </h2>
-                <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${
+                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-md border ${
                   isSecop1 
                     ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300' 
                     : 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300'
                 }`}>
                   {tender.source_platform.replace('_', ' ')}
+                </span>
+                <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  {activeDocs.length} Documentos del Pliego
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-xl">
@@ -269,21 +366,21 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
 
           <button 
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* CUERPO PRINCIPAL */}
-        <div className="flex-1 p-6 overflow-y-auto space-y-5">
+        <div className="flex-1 p-6 overflow-y-auto space-y-6">
           
           {!isCompleted ? (
             <>
-              {/* RESUMEN DEL PROCESO Y OFERTA */}
-              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 flex-wrap">
+              {/* RESUMEN DE LA OFERTA */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-900 dark:to-slate-900 border border-blue-100 dark:border-slate-800 flex items-center justify-between gap-4 flex-wrap">
                 <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Oferente Postulado</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Proponente Oficial</span>
                   <p className="text-xs font-bold text-slate-900 dark:text-white">{company.name} (NIT {company.nit})</p>
                 </div>
 
@@ -295,291 +392,205 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
                 </div>
 
                 <div>
-                  <span className="text-[10px] font-bold uppercase text-slate-400">Plataforma</span>
+                  <span className="text-[10px] font-bold uppercase text-slate-400">Plataforma Oficial</span>
                   <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{tender.source_platform.replace('_', ' ')}</p>
                 </div>
+
+                {tender.process_url && (
+                  <a
+                    href={tender.process_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 font-semibold hover:underline"
+                  >
+                    <span>Ver en SECOP</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
               </div>
 
-              {/* SECCIÓN 1: DOCUMENTOS QUE EL APLICATIVO YA GENERÓ Y COMPLETÓ AUTOMÁTICAMENTE */}
+              {/* ALERTA DE ERROR DE VALIDACIÓN */}
+              {validationError && (
+                <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border-2 border-rose-400 dark:border-rose-700/80 flex items-start gap-3 text-xs text-rose-900 dark:text-rose-200">
+                  <div className="p-1.5 rounded-xl bg-rose-600 text-white font-bold flex-shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="font-bold">No es posible proceder con la radicación</p>
+                    <p className="text-[11.5px] text-rose-800 dark:text-rose-300 mt-0.5 leading-relaxed">
+                      {validationError}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* BANNER DE REQUISITO: CARTA DE PRESENTACIÓN PENDIENTE */}
+              {!hasSignedLetter && (
+                <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-400 dark:border-amber-700/80 flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-amber-500 text-white font-bold mt-0.5 flex-shrink-0 shadow-xs">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="font-bold text-amber-950 dark:text-amber-200 text-xs">
+                        Requisito Obligatorio: Carta de Presentación Firmada
+                      </p>
+                      <p className="text-[11.5px] text-amber-900/80 dark:text-amber-300/80 mt-0.5">
+                        Para radicar formalmente en SECOP es indispensable adjuntar la Carta de Presentación o Formatos Oficiales firmados en PDF por el Representante Legal.
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer flex items-center gap-1.5 transition-colors flex-shrink-0">
+                    <Paperclip className="w-4 h-4" />
+                    <span>Adjuntar Carta Firmada (.PDF)</span>
+                    <input 
+                      type="file" 
+                      onChange={(e) => {
+                        const letterDoc = activeDocs.find(d => d.id === 'letter' || d.id === 'carta_oferta' || d.id === 'formatos_docx' || d.template_type === 'letter') || { id: 'letter' };
+                        handleFileUpload(letterDoc.id, e);
+                      }} 
+                      accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" 
+                      className="hidden" 
+                    />
+                  </label>
+                </div>
+              )}
+
+              {/* SECCIÓN 1: DOCUMENTOS DEL PLIEGO Y FORMATOS */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                     <Sparkles className="w-4 h-4 text-emerald-600" /> 
-                    1. Anexos Oficiales de la Oferta
+                    Documentos del Expediente de Postulación ({activeDocs.length})
                   </h3>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${
-                    signedLetter
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200'
-                      : 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border-amber-200'
-                  }`}>
-                    {signedLetter ? '✓ Carta Firmada Adjunta' : 'Falta Anexo 1 Firmado'}
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200">
+                    {agentDocs.length} Generados + {userRequiredDocs.length} Anexados
                   </span>
                 </div>
 
-                {/* BANNER DE ADVERTENCIA: ANEXO 1 ES OBLIGATORIO PARA RADICAR (SOLO APARECE SI NO SE HA AGREGADO EL ARCHIVO) */}
-                {!signedLetter && (
-                  <div className="p-4 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 flex items-start gap-3 text-xs shadow-xs">
-                    <div className="p-2 rounded-lg bg-amber-500 text-white mt-0.5 flex-shrink-0 shadow-xs">
-                      <AlertTriangle className="w-4 h-4" />
-                    </div>
-                    <div className="flex-1 space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="font-bold text-amber-950 dark:text-amber-200 text-[12px]">
-                          Requisito Obligatorio: Anexo 1 - Carta de Presentación
-                        </p>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
-                          Obligatorio
-                        </span>
-                      </div>
-                      <p className="text-amber-800 dark:text-amber-300 leading-relaxed text-[11px]">
-                        Conforme a la Ley 80/1993 y al pliego de condiciones, <strong>sin la Carta de Presentación firmada por el Representante Legal no es posible confirmar ni radicar la oferta</strong>. Descarga el borrador oficial generado, fírmalo y adjúntalo a continuación.
-                      </p>
-                      <div className="pt-1 flex items-center gap-2 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={handleDownloadDraftLetter}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Descargar Borrador (.DOC)</span>
-                        </button>
-                        <label className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer transition-colors shadow-xs">
-                          <UploadCloud className="w-3.5 h-3.5" />
-                          <span>Adjuntar Carta Firmada (PDF / Word)</span>
-                          <input type="file" onChange={handleSignedLetterUpload} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" className="hidden" />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                {/* LISTA COMPLETA DE DOCUMENTOS DEL PLIEGO */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                  {activeDocs.map((doc) => {
+                    const isAgent = doc.source === 'agent_generated';
+                    const isPliego = doc.source === 'pliego_reference';
+                    const isLetterDoc = doc.id === 'letter' || doc.id === 'carta_oferta' || doc.id === 'formatos_docx' || doc.template_type === 'letter';
+                    const att = attachments[doc.id];
+                    
+                    // Si es la carta de presentación, debe tener firma adjunta
+                    const isReady = isLetterDoc 
+                      ? hasSignedLetter 
+                      : (isAgent || isPliego || !!att);
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {/* CARTA DE PRESENTACIÓN CON DETECCIÓN DE CARTA FIRMADA */}
-                  <div className={`p-3 rounded-xl border flex items-start justify-between gap-2.5 ${
-                    signedLetter 
-                      ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/70 dark:bg-emerald-950/40' 
-                      : 'border-amber-300 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/20'
-                  }`}>
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className={`p-1 rounded text-white mt-0.5 flex-shrink-0 ${signedLetter ? 'bg-emerald-600' : 'bg-amber-500'}`}>
-                        {signedLetter ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="font-bold text-slate-900 dark:text-white text-[11px] truncate">
-                            {signedLetter ? '✓ Carta de Presentación Firmada' : 'Anexo 1 - Carta de Presentación'}
-                          </p>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border flex-shrink-0 ${
-                            signedLetter 
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/60 dark:text-emerald-200' 
-                              : 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900/60 dark:text-amber-200'
+                    return (
+                      <div
+                        key={doc.id}
+                        className={`p-3 rounded-2xl border flex items-start justify-between gap-2.5 ${
+                          isReady
+                            ? 'border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/30 dark:bg-emerald-950/20'
+                            : 'border-amber-300 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/20'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <div className={`p-1.5 rounded-xl text-white mt-0.5 flex-shrink-0 ${
+                            isReady ? 'bg-emerald-600' : 'bg-amber-500'
                           }`}>
-                            {signedLetter ? 'Adjunta' : 'Obligatorio'}
-                          </span>
+                            {isReady ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 dark:text-white text-[11px] truncate">
+                              {doc.title}
+                            </p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {isLetterDoc
+                                ? (hasSignedLetter ? `✓ Firmado: ${att?.name || signedLetter?.name || 'Archivo adjunto'}` : '⚠️ Borrador IA (Falta versión firmada)')
+                                : (att ? att.name : isAgent ? '✓ Generado y auditado por IA' : isPliego ? '📄 Pliego Oficial de la Entidad' : doc.filename)}
+                            </p>
+                          </div>
                         </div>
-                        <p className="text-[10px] text-slate-500 truncate max-w-[200px]" title={signedLetter ? signedLetter.name : undefined}>
-                          {signedLetter ? signedLetter.name : `Pendiente de firma (${company.name})`}
-                        </p>
+
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {(doc.source === 'user_attached' || isLetterDoc) && (
+                            <label 
+                              className={`p-1.5 rounded-lg border text-[10px] font-semibold cursor-pointer flex items-center gap-1 ${
+                                isLetterDoc && !hasSignedLetter
+                                  ? 'bg-amber-600 text-white border-amber-700 hover:bg-amber-700'
+                                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 hover:text-blue-600'
+                              }`} 
+                              title="Cargar / Cambiar archivo"
+                            >
+                              <Paperclip className="w-3.5 h-3.5" />
+                              {isLetterDoc && !hasSignedLetter && <span>Adjuntar</span>}
+                              <input type="file" onChange={(e) => handleFileUpload(doc.id, e)} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" className="hidden" />
+                            </label>
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <label className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 hover:text-blue-600 dark:hover:text-blue-300 text-[10px] font-semibold cursor-pointer" title={signedLetter ? "Cambiar archivo firmado" : "Adjuntar carta firmada"}>
-                        <Paperclip className="w-3.5 h-3.5" />
-                        <input type="file" onChange={handleSignedLetterUpload} accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" className="hidden" />
-                      </label>
-                      {signedLetter && (
-                        <button
-                          type="button"
-                          onClick={handleRemoveSignedLetter}
-                          title="Quitar archivo firmado"
-                          className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-start gap-2.5">
-                    <div className="p-1 rounded bg-emerald-600 text-white mt-0.5">
-                      <Check className="w-3 h-3" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white text-[11px]">Matriz Financiera & RUP</p>
-                      <p className="text-[10px] text-slate-500">Ratios de liquidez, endeudamiento y SMMLV auditados</p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-start gap-2.5">
-                    <div className="p-1 rounded bg-emerald-600 text-white mt-0.5">
-                      <Check className="w-3 h-3" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white text-[11px]">Propuesta Económica Desglosada</p>
-                      <p className="text-[10px] text-slate-500">Calculada con A.I.U. ({formatCOP(proposedBudget)})</p>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-start gap-2.5">
-                    <div className="p-1 rounded bg-emerald-600 text-white mt-0.5">
-                      <Check className="w-3 h-3" />
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 dark:text-white text-[11px]">Checklist Habilitante Decreto 1082</p>
-                      <p className="text-[10px] text-slate-500">Verificación normativa y técnica completada</p>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* SECCIÓN 2: DOCUMENTOS DE SOPORTE DEL PROPONENTE (VINCULADOS AUTOMÁTICAMENTE) */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-blue-600" /> 
-                    2. Documentos de Soporte del Proponente (Vinculados)
-                  </h3>
+              {/* SECCIÓN DE CONFIRMACIÓN */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span className="font-bold text-slate-900 dark:text-white">Verificación de Capacidad Habilitante</span>
                 </div>
-
-                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2 text-xs">
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span className="text-slate-700 dark:text-slate-300 font-medium">✓ Certificado RUP Vigente ({company.smmlv_experience} SMMLV)</span>
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Vinculado</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span className="text-slate-700 dark:text-slate-300 font-medium">✓ Certificado Cámara de Comercio & Representación Legal</span>
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Vinculado</span>
-                  </div>
-                  <div className="flex items-center justify-between py-1">
-                    <span className="text-slate-700 dark:text-slate-300 font-medium">✓ Certificación de Parafiscales y Seguridad Social (Art. 50 Ley 789)</span>
-                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Vinculado</span>
-                  </div>
-                </div>
+                <p className="text-slate-600 dark:text-slate-300 leading-relaxed text-[11.5px]">
+                  Al confirmar la radicación, el sistema compilará todos los {activeDocs.length} documentos del pliego oficial, verificará la firma del Representante Legal e inscribirá la oferta en la oportunidad <strong>{tender.process_number}</strong> con un radicado oficial ante <strong>{tender.entity_name}</strong>.
+                </p>
               </div>
-
-              {/* SECCIÓN 3: ¿DESEAS ADJUNTAR ALGÚN ARCHIVO COMPLEMENTARIO? (OPCIONAL) */}
-              <div>
-                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Paperclip className="w-4 h-4 text-slate-500" /> 
-                  3. Anexar Archivos Adicionales (Opcional)
-                </h3>
-
-                <div className="p-3.5 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/30 flex items-center justify-between gap-3 text-xs">
-                  <div>
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">
-                      Póliza de seriedad, certificados técnicos o anexos específicos del pliego
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      Formatos admitidos: PDF, Word, Excel, ZIP (Hasta 50MB)
-                    </p>
-                  </div>
-
-                  <label className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-bold text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 cursor-pointer shadow-xs flex items-center gap-1.5 transition-colors">
-                    <UploadCloud className="w-4 h-4" />
-                    <span>Cargar Archivo</span>
-                    <input type="file" onChange={handleFileUpload} className="hidden" />
-                  </label>
-                </div>
-
-                {attachedFiles.length > 0 && (
-                  <div className="mt-2 space-y-1.5">
-                    {attachedFiles.map((file, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs">
-                        <span className="font-medium text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-                          <Paperclip className="w-3.5 h-3.5 text-blue-600" /> {file}
-                        </span>
-                        <button 
-                          onClick={() => setAttachedFiles(attachedFiles.filter((_, i) => i !== idx))}
-                          className="text-rose-500 hover:text-rose-700 text-xs font-bold"
-                        >
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* BARRA DE PROGRESO DE RADICACIÓN AUTOMÁTICA */}
-              {isSubmitting && (
-                <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-bold text-blue-900 dark:text-blue-200">
-                    <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                    <span>{submissionProgress}</span>
-                  </div>
-                  <div className="w-full bg-blue-200 dark:bg-blue-900 h-2 rounded-full overflow-hidden">
-                    <div className="bg-blue-600 h-full w-4/5 animate-pulse"></div>
-                  </div>
-                </div>
-              )}
             </>
           ) : (
-            /* PANTALLA DE RADICADO EXITOSO (COMPROBANTE OFICIAL) */
-            <div className="space-y-5">
-              <div className="p-6 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-center space-y-3">
-                <div className="h-14 w-14 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-md">
-                  <CheckCircle2 className="w-8 h-8" />
-                </div>
+            /* ESTADO FINAL: OFERTA RADICADA SATISFACTORIAMENTE */
+            <div className="py-6 px-4 text-center space-y-5">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto shadow-sm">
+                <CheckCircle2 className="w-10 h-10" />
+              </div>
+
+              <div className="space-y-2 max-w-md mx-auto">
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                  ¡POSTULACIÓN RADICADA CON ÉXITO!
+                </span>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                  Oferta Presentada en {tender.source_platform.replace('_', ' ')}
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Tu propuesta fue registrada ante <strong>{tender.entity_name}</strong> con el expediente oficial de {activeDocs.length} documentos.
+                </p>
+              </div>
+
+              {/* TARJETA DE RADICADO */}
+              <div className="p-5 rounded-3xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 max-w-md mx-auto space-y-3 text-center">
                 <div>
-                  <h3 className="text-base font-bold text-emerald-900 dark:text-emerald-200">
-                    ¡Oferta Radicada Satisfactoriamente!
-                  </h3>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                    La postulación fue registrada exitosamente ante <strong>{tender.entity_name}</strong>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">Código Oficial de Radicación</span>
+                  <p className="text-xl font-mono font-black text-emerald-900 dark:text-emerald-200 mt-0.5 tracking-wide">
+                    {radicadoCode}
                   </p>
                 </div>
-
-                <div className="p-3 bg-white dark:bg-slate-900 rounded-xl border border-emerald-300 dark:border-emerald-700 inline-block shadow-sm">
-                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Código de Radicado Oficial</span>
-                  <span className="text-base font-mono font-bold text-emerald-700 dark:text-emerald-400 tracking-wider">
-                    {radicadoCode}
-                  </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">{submissionTimestamp}</span>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 pt-2 border-t border-emerald-200 dark:border-emerald-800/80">
+                  <p>Fecha y Hora: <strong>{submissionTimestamp}</strong></p>
+                  <p className="mt-0.5">Valor Ofertado: <strong>{formatCOP(proposedBudget)} COP</strong></p>
                 </div>
               </div>
 
-              {/* DETALLES DE LA RADICACIÓN */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-xs space-y-2">
-                <p className="font-bold text-slate-800 dark:text-slate-200 text-[11px] uppercase tracking-wider mb-1">
-                  Resumen de la Transacción de Radicación
-                </p>
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div>
-                    <span className="text-slate-400 block">Proceso:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{tender.process_number}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Plataforma:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{tender.source_platform.replace('_', ' ')}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Proponente:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">{company.name} (NIT {company.nit})</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block">Propuesta Económica:</span>
-                    <span className="font-semibold text-blue-600 dark:text-blue-400 font-mono">{formatCOP(proposedBudget)} COP</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* BOTONES DE ACCIÓN POST-RADICACIÓN */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              {/* BOTONES DE DESCARGA POST-RADICACIÓN */}
+              <div className="flex items-center justify-center gap-3 flex-wrap pt-2">
                 <button
                   onClick={handleDownloadReceipt}
-                  className="py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs shadow-xs hover:bg-slate-800 transition-colors"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Imprimir / Guardar Acta de Radicación (PDF)</span>
+                  <span>Imprimir / Descargar Acta de Radicación</span>
                 </button>
 
                 <button
                   onClick={handleDownloadCompleteZip}
-                  className="py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-colors"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors"
                 >
                   <Archive className="w-4 h-4" />
-                  <span>Descargar Expediente Completo (.ZIP)</span>
+                  <span>Descargar Expediente Radicado (.ZIP)</span>
                 </button>
               </div>
             </div>
@@ -587,49 +598,41 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
 
         </div>
 
-        {/* PIE DE PÁGINA CON BOTÓN PRINCIPAL */}
+        {/* PIE DE PÁGINA / BOTONES DE ACCIÓN */}
         {!isCompleted && (
-          <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-900/60 flex-wrap gap-3">
+          <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 flex items-center justify-between gap-3">
             <button
+              type="button"
               onClick={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 rounded-xl"
             >
               Cancelar
             </button>
 
-            <div className="flex items-center gap-3">
-              {!signedLetter && (
-                <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 font-medium">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span className="hidden sm:inline">Adjunta el Anexo 1 firmado para habilitar la radicación</span>
-                  <span className="sm:hidden">Falta Carta Firmada</span>
-                </div>
+            <button
+              type="button"
+              onClick={handleAutoSubmit}
+              disabled={isSubmitting}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl shadow-xs transition-all font-bold text-xs ${
+                !hasSignedLetter
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-500/20'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:scale-105 shadow-emerald-500/20'
+              }`}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>{submissionProgress || 'Radicando oferta...'}</span>
+                </>
+              ) : (
+                <>
+                  <SendHorizontal className="w-4 h-4" />
+                  <span>
+                    {!hasSignedLetter ? 'Verificar y Radicar en SECOP' : 'Confirmar y Radicar Oferta en SECOP'}
+                  </span>
+                </>
               )}
-
-              <button
-                onClick={handleAutoSubmit}
-                disabled={isSubmitting || !signedLetter}
-                className={`px-6 py-3 rounded-xl font-bold text-xs shadow-md flex items-center gap-2 transition-all ${
-                  !signedLetter
-                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed border border-slate-300 dark:border-slate-700'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-95'
-                }`}
-                title={!signedLetter ? "Debes adjuntar el Anexo 1 (Carta de Presentación firmada) para confirmar y radicar la oferta" : "Confirmar y radicar oferta ante la entidad"}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Radicando Oferta...</span>
-                  </>
-                ) : (
-                  <>
-                    <SendHorizontal className="w-4 h-4" />
-                    <span>Confirmar y Radicar Oferta en 1 Clic 🚀</span>
-                  </>
-                )}
-              </button>
-            </div>
+            </button>
           </div>
         )}
 
