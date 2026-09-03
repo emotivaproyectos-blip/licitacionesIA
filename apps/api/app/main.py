@@ -325,6 +325,53 @@ async def extract_rup_from_file(file: UploadFile = File(...)):
     
     return await RUPExtractorService.extract_rup_data_with_ai(extracted_text, file.filename)
 
+# -----------------------------------------------------------------------------
+# Endpoints de Inteligencia de Mercado y Competencia (SECOP II)
+# -----------------------------------------------------------------------------
+
+@app.get("/api/v1/intelligence/competitors", tags=["Inteligencia de Mercado"])
+async def get_competitor_intelligence(
+    q: str = Query(..., description="NIT o Razón social de la empresa competidora"),
+    limit: int = Query(50, description="Límite de contratos")
+):
+    """Consulta el historial oficial de contratos y adjudicaciones de un competidor en SECOP II."""
+    return await SECOPDatosAbiertosClient.fetch_competitor_contracts(query=q, limit=limit)
+
+@app.get("/api/v1/intelligence/entities", tags=["Inteligencia de Mercado"])
+async def get_entity_intelligence(
+    name: str = Query(..., description="Nombre de la entidad estatal a auditar"),
+    limit: int = Query(50, description="Límite de contratos")
+):
+    """Consulta contrataciones y proveedores frecuentes de una entidad pública en SECOP II."""
+    return await SECOPDatosAbiertosClient.fetch_entity_contracts(entity_name=name, limit=limit)
+
+@app.get("/api/v1/intelligence/paa", tags=["Inteligencia de Mercado"])
+async def get_paa_radar(
+    keyword: Optional[str] = Query(None, description="Palabra clave en el objeto"),
+    limit: int = Query(30, description="Límite de registros")
+):
+    """Consulta compras tempranas planificadas en el Plan Anual de Adquisiciones (PAA)."""
+    return await SECOPDatosAbiertosClient.fetch_paa_items(keyword=keyword, limit=limit)
+
+# -----------------------------------------------------------------------------
+# Endpoints de Alertas y Vigilancia 24/7 (SECOP II)
+# -----------------------------------------------------------------------------
+
+class SendAlertRequest(BaseModel):
+    company_name: str
+    recipient_email: str
+    tenders_count: Optional[int] = 2
+
+@app.post("/api/v1/alerts/send-digest", tags=["Alertas 24/7"])
+async def send_daily_digest_alert(payload: SendAlertRequest):
+    """Despacha el correo de alertas matutino con las licitaciones compatibles del día."""
+    from app.modules.secop.alert_worker import SECOPAlertWorker
+    return await SECOPAlertWorker.dispatch_daily_digest(
+        company_name=payload.company_name,
+        recipient_email=payload.recipient_email,
+        tenders_count=payload.tenders_count or 2
+    )
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

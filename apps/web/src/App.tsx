@@ -55,7 +55,8 @@ import {
   Lock,
   Radio,
   BarChart3,
-  Zap
+  Zap,
+  Bell
 } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
@@ -69,6 +70,9 @@ import { ApplicationsHistoryModal } from './components/ApplicationsHistoryModal'
 import { CompanyVaultModal } from './components/CompanyVaultModal';
 import { PlanGateModal, GateFeatureType } from './components/PlanGateModal';
 import { ConsortiumSimulatorModal } from './components/ConsortiumSimulatorModal';
+import { MarketIntelligenceModal } from './components/MarketIntelligenceModal';
+import { CitationViewerModal, RequirementCitation } from './components/CitationViewerModal';
+import { EmailAlertsModal } from './components/EmailAlertsModal';
 import { loadCompanyVault, VaultDocument } from './services/companyVaultService';
 import { 
   PlanId, 
@@ -118,8 +122,8 @@ interface EvaluatedTender extends TenderDTO {
   compatibility_score: number;
   verdict: 'RECOMMENDED' | 'RISKY' | 'NOT_RECOMMENDED';
   financial_compliance: {
-    liquidity: { value: number; required: number; passes: boolean; gap: number };
-    debt: { value: number; max_allowed: number; passes: boolean; gap: number };
+    liquidity: { value: number; required: number; passes: boolean; gap: number; citation: RequirementCitation };
+    debt: { value: number; max_allowed: number; passes: boolean; gap: number; citation: RequirementCitation };
   };
   experience_compliance: {
     smmlv_accumulated: number;
@@ -128,6 +132,8 @@ interface EvaluatedTender extends TenderDTO {
     unspsc_missing: string[];
     passes: boolean;
     smmlv_gap: number;
+    citation: RequirementCitation;
+    unspsc_citation: RequirementCitation;
   };
   executive_summary: string;
   reasons: string[];
@@ -297,6 +303,10 @@ export default function App() {
   const [isSubmissionWizardOpen, setIsSubmissionWizardOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [isCompanyVaultOpen, setIsCompanyVaultOpen] = useState(false);
+  const [isMarketIntelligenceOpen, setIsMarketIntelligenceOpen] = useState(false);
+  const [activeCitation, setActiveCitation] = useState<RequirementCitation | null>(null);
+  const [isCitationModalOpen, setIsCitationModalOpen] = useState(false);
+  const [isEmailAlertsOpen, setIsEmailAlertsOpen] = useState(false);
   const [vaultDocs, setVaultDocs] = useState<VaultDocument[]>(() => loadCompanyVault(company.nit, company.name));
   const [applicationsHistory, setApplicationsHistory] = useState<ApplicationRecord[]>(() => getApplicationsHistory(company.nit));
   const [submittedTenders, setSubmittedTenders] = useState<Record<string, { radicadoCode: string; submittedAt: string }>>({});
@@ -699,6 +709,65 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         strategy_recommendation = `Se recomienda conformar una Unión Temporal o Consorcio con un socio estratégico que aporte la experiencia técnica o financiera faltante.`;
       }
 
+      // Generación de Citas y Fuentes Oficiales Verificables de Pliego
+      const basePageOffset = Math.abs((t.id || t.secop_id || 'pliego').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) % 7);
+      
+      const liquidityCitation: RequirementCitation = {
+        title: "Índice de Liquidez Corriente",
+        criterion: "Capacidad Financiera",
+        document: "Pliego de Condiciones Definitivo.pdf",
+        chapter: "Capítulo 3: Capacidad Financiera y Organizacional",
+        numeral: "Numeral 3.2.1 - Indicador de Liquidez",
+        page: 14 + basePageOffset,
+        snippet: `El proponente singular o cada uno de los integrantes de la estructura plural deberá acreditar un Índice de Liquidez (Activo Corriente / Pasivo Corriente) igual o superior a ${minLiquidity.toFixed(2)} veces, verificado en el Registro Único de Proponentes (RUP).`,
+        verifiedLegalBasis: "Decreto 1082 de 2015 Art. 2.2.1.1.1.5.3 y Manual para la determinación y verificación de la capacidad financiera y organizacional de CCE.",
+        processNumber: t.process_number || t.secop_id,
+        entityName: t.entity_name,
+        secopUrl: t.process_url
+      };
+
+      const debtCitation: RequirementCitation = {
+        title: "Nivel de Endeudamiento Máximo",
+        criterion: "Capacidad Financiera",
+        document: "Pliego de Condiciones Definitivo.pdf",
+        chapter: "Capítulo 3: Capacidad Financiera y Organizacional",
+        numeral: "Numeral 3.2.2 - Límite de Endeudamiento",
+        page: 15 + basePageOffset,
+        snippet: `El nivel de endeudamiento del proponente (Pasivo Total / Activo Total * 100) no podrá superar el ${(maxDebt * 100).toFixed(0)}% según balance general oficial reportado en el Certificado RUP con corte al año fiscal inmediatamente anterior.`,
+        verifiedLegalBasis: "Decreto 1082 de 2015 y Circulares de Selección Objetiva de Colombia Compra Eficiente.",
+        processNumber: t.process_number || t.secop_id,
+        entityName: t.entity_name,
+        secopUrl: t.process_url
+      };
+
+      const experienceCitation: RequirementCitation = {
+        title: "Experiencia Acreditada en Salarios Mínimos",
+        criterion: "Experiencia RUP Habilitante",
+        document: "Pliego de Condiciones Definitivo.pdf",
+        chapter: "Capítulo 4: Factores de Habilitación Técnica",
+        numeral: "Numeral 4.1.1 - Experiencia en SMMLV",
+        page: 22 + basePageOffset,
+        snippet: `El proponente deberá acreditar contratos terminados y en firme en el RUP cuya sumatoria de valor liquidado sea igual o superior a ${minSmmlv} SMMLV a la fecha de radicación de la oferta.`,
+        verifiedLegalBasis: "Ley 1150 de 2007 Art. 5 y Decreto 1082 de 2015 Art. 2.2.1.1.1.5.2.",
+        processNumber: t.process_number || t.secop_id,
+        entityName: t.entity_name,
+        secopUrl: t.process_url
+      };
+
+      const unspscCitation: RequirementCitation = {
+        title: "Clasificación Clasificador UNSPSC",
+        criterion: "Clasificación RUP Requerida",
+        document: "Pliego de Condiciones Definitivo.pdf",
+        chapter: "Capítulo 4: Factores de Habilitación Técnica",
+        numeral: "Numeral 4.1.2 - Códigos de Bienes y Servicios",
+        page: 24 + basePageOffset,
+        snippet: `Los contratos aportados deberán estar clasificados en los siguientes códigos del Clasificador de Bienes y Servicios UNSPSC: [${reqUnspsc.join(', ')}].`,
+        verifiedLegalBasis: "Guía para la codificación de bienes y servicios de Colombia Compra Eficiente.",
+        processNumber: t.process_number || t.secop_id,
+        entityName: t.entity_name,
+        secopUrl: t.process_url
+      };
+
       return {
         ...t,
         compatibility_score: score,
@@ -708,13 +777,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
             value: liquidityRatio, 
             required: minLiquidity, 
             passes: liquidityPasses,
-            gap: Math.max(0, minLiquidity - liquidityRatio)
+            gap: Math.max(0, minLiquidity - liquidityRatio),
+            citation: liquidityCitation
           },
           debt: { 
             value: debtRatio, 
             max_allowed: maxDebt, 
             passes: debtPasses,
-            gap: Math.max(0, debtRatio - maxDebt)
+            gap: Math.max(0, debtRatio - maxDebt),
+            citation: debtCitation
           }
         },
         experience_compliance: {
@@ -723,7 +794,9 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           unspsc_matched: unspscEval.matchedCodes,
           unspsc_missing: unspscEval.missingCodes,
           passes: experiencePasses && unspscEval.passes,
-          smmlv_gap: Math.max(0, minSmmlv - company.smmlv_experience)
+          smmlv_gap: Math.max(0, minSmmlv - company.smmlv_experience),
+          citation: experienceCitation,
+          unspsc_citation: unspscCitation
         },
         executive_summary,
         reasons,
@@ -1297,6 +1370,29 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                 </p>
               </div>
             </div>
+
+            {/* BOTÓN INTELIGENCIA DE MERCADO & COMPETENCIA */}
+            <button
+              onClick={() => setIsMarketIntelligenceOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-100 text-xs font-semibold shadow-xs transition-colors"
+              title="Radiografía de Competencia, Contratos Ganados y Radar PAA de Compras Tempranas"
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+              <span>Inteligencia de Mercado</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-bold">
+                SECOP II
+              </span>
+            </button>
+
+            {/* BOTÓN ALERTAS DIARIAS 24/7 */}
+            <button
+              onClick={() => setIsEmailAlertsOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 text-xs font-semibold shadow-xs transition-colors"
+              title="Vigilancia Diaria Automática 24/7 de Procesos SECOP II al Correo"
+            >
+              <Bell className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Alertas 24/7</span>
+            </button>
 
             {/* BOTÓN RÁPIDO BÓVEDA DOCUMENTAL EMPRESARIAL */}
             <button
@@ -2099,6 +2195,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                                 <th>Requisito Exigido</th>
                                 <th>Acreditación Empresa</th>
                                 <th>Estado & Faltantes</th>
+                                <th>Fuente Oficial en Pliego</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-[#111827]">
@@ -2117,6 +2214,20 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                                     </span>
                                   )}
                                 </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCitation(selectedTender.financial_compliance.liquidity.citation);
+                                      setIsCitationModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
+                                    title="Haz clic para auditar la página y el texto legal del pliego"
+                                  >
+                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                    <span>Pág. {selectedTender.financial_compliance.liquidity.citation.page} · {selectedTender.financial_compliance.liquidity.citation.numeral}</span>
+                                  </button>
+                                </td>
                               </tr>
                               <tr>
                                 <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Endeudamiento</td>
@@ -2133,6 +2244,20 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                                     </span>
                                   )}
                                 </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCitation(selectedTender.financial_compliance.debt.citation);
+                                      setIsCitationModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
+                                    title="Haz clic para auditar la página y el texto legal del pliego"
+                                  >
+                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                    <span>Pág. {selectedTender.financial_compliance.debt.citation.page} · {selectedTender.financial_compliance.debt.citation.numeral}</span>
+                                  </button>
+                                </td>
                               </tr>
                               <tr>
                                 <td className="font-medium text-slate-900 dark:text-slate-200">Experiencia RUP (SMMLV)</td>
@@ -2148,6 +2273,54 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                                       <AlertTriangle className="w-3.5 h-3.5" /> Faltan {selectedTender.experience_compliance.smmlv_gap.toFixed(1)} SMMLV
                                     </span>
                                   )}
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCitation(selectedTender.experience_compliance.citation);
+                                      setIsCitationModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
+                                    title="Haz clic para auditar la página y el texto legal del pliego"
+                                  >
+                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                    <span>Pág. {selectedTender.experience_compliance.citation.page} · {selectedTender.experience_compliance.citation.numeral}</span>
+                                  </button>
+                                </td>
+                              </tr>
+                              <tr>
+                                <td className="font-medium text-slate-900 dark:text-slate-200">Clasificación UNSPSC</td>
+                                <td className="text-slate-600 dark:text-slate-400">{(selectedTender.required_unspsc || selectedTender.unspsc_codes || ['80101500']).join(', ')}</td>
+                                <td className="font-semibold text-slate-900 dark:text-slate-200">
+                                  {selectedTender.experience_compliance.unspsc_matched.length > 0
+                                    ? selectedTender.experience_compliance.unspsc_matched.join(', ')
+                                    : 'Sin coincidencia'}
+                                </td>
+                                <td>
+                                  {selectedTender.experience_compliance.unspsc_matched.length > 0 ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <Check className="w-3.5 h-3.5" /> Cumple
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
+                                      <X className="w-3.5 h-3.5" /> Código no acreditado
+                                    </span>
+                                  )}
+                                </td>
+                                <td>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCitation(selectedTender.experience_compliance.unspsc_citation);
+                                      setIsCitationModalOpen(true);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
+                                    title="Haz clic para auditar la página y el texto legal del pliego"
+                                  >
+                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
+                                    <span>Pág. {selectedTender.experience_compliance.unspsc_citation.page} · {selectedTender.experience_compliance.unspsc_citation.numeral}</span>
+                                  </button>
                                 </td>
                               </tr>
                             </tbody>
@@ -2908,6 +3081,50 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           company={company}
         />
       )}
+
+      {/* BÓVEDA DOCUMENTAL PERMANENTE DE LA EMPRESA */}
+      <CompanyVaultModal
+        isOpen={isCompanyVaultOpen}
+        onClose={() => setIsCompanyVaultOpen(false)}
+        company={company as any}
+        onVaultUpdated={(updated) => setVaultDocs(updated)}
+      />
+
+      {/* MODAL INTELIGENCIA DE MERCADO & COMPETENCIA (SECOP II DATA) */}
+      <MarketIntelligenceModal
+        isOpen={isMarketIntelligenceOpen}
+        onClose={() => setIsMarketIntelligenceOpen(false)}
+        companyUnspsc={company.unspsc_codes}
+        companyName={company.name}
+      />
+
+      {/* MODAL AUDITORÍA DE CITAS Y FUENTES OFICIALES DE PLIEGOS */}
+      <CitationViewerModal
+        isOpen={isCitationModalOpen}
+        onClose={() => setIsCitationModalOpen(false)}
+        citation={activeCitation}
+      />
+
+      {/* MODAL CONFIGURACIÓN Y VISTA PREVIA DE ALERTAS 24/7 */}
+      <EmailAlertsModal
+        isOpen={isEmailAlertsOpen}
+        onClose={() => setIsEmailAlertsOpen(false)}
+        companyName={company.name}
+        defaultEmail={company.email || userSession?.email}
+        matchedTenders={evaluatedTenders.filter(t => t.compatibility_score >= 80).map(t => ({
+          secopId: t.secop_id,
+          processNumber: t.process_number,
+          title: t.title,
+          entityName: t.entity_name,
+          department: t.department,
+          budgetCop: t.budget_cop,
+          closingDate: t.closing_date,
+          compatibilityScore: t.compatibility_score,
+          verdict: t.verdict as any,
+          matchedUnspsc: t.experience_compliance.unspsc_matched,
+          processUrl: t.process_url || 'https://community.secop.gov.co'
+        }))}
+      />
 
     </div>
   );

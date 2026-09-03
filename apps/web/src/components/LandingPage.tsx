@@ -3,6 +3,7 @@ import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { CinematicFooter } from "./ui/motion-footer";
 import { FuturisticHero } from "./ui/hero-futuristic";
+import { FreeProcurementToolsSection } from "./tools/FreeProcurementToolsSection";
 import {
   CheckCircle2,
   TrendingUp,
@@ -228,6 +229,10 @@ export function LandingPage({
             </button>
             <button onClick={() => scrollToSection("simulador")} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer">
               Simulador
+            </button>
+            <button onClick={() => scrollToSection("herramientas-gratuitas")} className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-extrabold">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Herramientas Gratis</span>
             </button>
             <button onClick={() => scrollToSection("garantias")} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer">
               Seguridad
@@ -608,6 +613,13 @@ export function LandingPage({
           </section>
         </div>
 
+        {/* =======================================================================
+            HERRAMIENTAS GRATUITAS DE ENTRADA (LEAD MAGNETS SECOP II)
+        ======================================================================== */}
+        <FreeProcurementToolsSection
+          onEnterDashboard={onEnterDashboard}
+          onOpenAuth={onOpenAuth}
+        />
 
       </main>
 
