@@ -816,23 +816,35 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     evaluated.sort((a, b) => b.compatibility_score - a.compatibility_score);
     setEvaluatedTenders(evaluated);
     
-    // Mantener la selección actual o asignar la primera
+    // Mantener la selección actual o asignar una ya evaluada / permitida por el plan
     if (evaluated.length > 0) {
       setSelectedTender(prev => {
-        if (!prev) {
-          recordTenderEvaluation(evaluated[0].id);
+        if (prev) {
+          const match = evaluated.find(e => e.id === prev.id);
+          if (match) return match;
+        }
+
+        // Si prev no existe o no coincide con los filtros, buscar si hay alguna ya evaluada en este mes
+        const currentUsage = getMonthlyEvaluationsUsage();
+        const alreadyEvaluated = evaluated.find(e => currentUsage.evaluatedTenderIds.includes(e.id));
+        if (alreadyEvaluated) return alreadyEvaluated;
+
+        // Si ninguna está evaluada, verificar si el plan actual permite evaluar una nueva
+        const check = canEvaluateTender(currentPlanId, evaluated[0].id);
+        if (check.allowed) {
+          recordTenderEvaluation(evaluated[0].id, currentPlanId);
+          setEvalUsage(getMonthlyEvaluationsUsage());
           return evaluated[0];
         }
-        const match = evaluated.find(e => e.id === prev.id);
-        if (match) return match;
-        recordTenderEvaluation(evaluated[0].id);
-        return evaluated[0];
+
+        // Si se agotó el límite de evaluaciones (5/5 en Free), no evaluar automáticamente
+        return null;
       });
     } else {
       setSelectedTender(null);
     }
 
-  }, [company, rawTenders, evaluateUnspscCompatibility]);
+  }, [company, rawTenders, evaluateUnspscCompatibility, currentPlanId]);
 
   const handleSelectTender = (tender: EvaluatedTender) => {
     const check = canEvaluateTender(currentPlanId, tender.id);
@@ -840,7 +852,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       triggerPlanGate('evaluations_limit');
       return;
     }
-    recordTenderEvaluation(tender.id);
+    recordTenderEvaluation(tender.id, currentPlanId);
     setEvalUsage(getMonthlyEvaluationsUsage());
     setSelectedTender(tender);
   };
@@ -957,7 +969,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     });
     if (matches.length > 0) {
       if (!selectedTender || !matches.some(t => t.id === selectedTender.id)) {
-        handleSelectTender(matches[0]);
+        const currentUsage = getMonthlyEvaluationsUsage();
+        const alreadyEval = matches.find(t => currentUsage.evaluatedTenderIds.includes(t.id));
+        if (alreadyEval) {
+          setSelectedTender(alreadyEval);
+        } else if (canEvaluateTender(currentPlanId, matches[0].id).allowed) {
+          handleSelectTender(matches[0]);
+        } else {
+          setSelectedTender(null);
+        }
       }
     } else {
       setSelectedTender(null);
@@ -980,7 +1000,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       return true;
     });
     if (matches.length > 0) {
-      handleSelectTender(matches[0]);
+      const currentUsage = getMonthlyEvaluationsUsage();
+      const alreadyEval = matches.find(t => currentUsage.evaluatedTenderIds.includes(t.id));
+      if (alreadyEval) {
+        setSelectedTender(alreadyEval);
+      } else if (canEvaluateTender(currentPlanId, matches[0].id).allowed) {
+        handleSelectTender(matches[0]);
+      } else {
+        setSelectedTender(null);
+      }
     } else {
       setSelectedTender(null);
     }
@@ -1361,7 +1389,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                   <span className="font-bold text-slate-900 dark:text-white text-[11px]">{planLimits.name}</span>
                   {currentPlanId === 'free' && (
                     <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 text-[10px] font-bold rounded">
-                      {evalUsage.count}/5 eval.
+                      {Math.min(evalUsage.count, 5)}/5 eval.
                     </span>
                   )}
                 </div>
@@ -1702,6 +1730,8 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                 filteredTenders.map((tender, index) => {
                   const isSelected = selectedTender?.id === tender.id;
                   const isSubmitted = !!submittedTenders[tender.id];
+                  const isEvaluated = evalUsage.evaluatedTenderIds.includes(tender.id);
+                  const isLimitReached = currentPlanId === 'free' && evalUsage.count >= 5 && !isEvaluated;
                   
                   let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800';
                   let badgeText = `${tender.compatibility_score}% Match Alto`;
@@ -1723,6 +1753,8 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                       className={`p-3.5 rounded-2xl cursor-pointer bg-white dark:bg-[#111827] border transition-all ${
                         isSelected 
                           ? 'border-blue-600 dark:border-blue-500 ring-2 ring-blue-500/20 shadow-md bg-blue-50/20 dark:bg-blue-950/20' 
+                          : isLimitReached
+                          ? 'border-slate-200 dark:border-slate-800/80 opacity-80 hover:border-amber-400 dark:hover:border-amber-600 shadow-xs'
                           : 'border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700 shadow-xs'
                       }`}
                     >
@@ -1747,6 +1779,13 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                             VIGENTE
                           </span>
 
+                          {currentPlanId === 'free' && isEvaluated && (
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 text-[10px] font-bold border border-blue-200 dark:border-blue-800 flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                              EVALUADA ({evalUsage.evaluatedTenderIds.indexOf(tender.id) + 1}/5)
+                            </span>
+                          )}
+
                           {isSubmitted && (
                             <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" /> RADICADA
@@ -1754,9 +1793,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                           )}
                         </div>
 
-                        <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border ${badgeBg}`}>
-                          {badgeText}
-                        </span>
+                        {isLimitReached ? (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-amber-300 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5 text-amber-600" /> Requiere Plan Pyme
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border ${badgeBg}`}>
+                            {badgeText}
+                          </span>
+                        )}
                       </div>
 
                       <h3 className="font-semibold text-xs text-slate-900 dark:text-slate-100 mt-2 line-clamp-2 leading-snug">
@@ -2644,6 +2689,30 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                   )
                 )}
 
+              </div>
+            ) : currentPlanId === 'free' && evalUsage.count >= 5 ? (
+              <div className="p-12 text-center text-xs bg-white dark:bg-[#111827] rounded-2xl border border-amber-200 dark:border-amber-800/80 flex flex-col items-center justify-center gap-4">
+                <div className="w-14 h-14 rounded-3xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-xs">
+                  <Lock className="w-7 h-7" />
+                </div>
+                <div className="max-w-md space-y-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300">
+                    LÍMITE MENSUAL ALCANZADO (5/5)
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Has utilizado tus 5 evaluaciones del Plan Explorador RUP
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Puedes consultar y volver a abrir cualquiera de las <strong>5 licitaciones ya evaluadas</strong> en la lista de la izquierda (marcadas con "Evaluada"), o actualizar a Plan Pyme Contratista para evaluaciones <strong>ILIMITADAS</strong> y acceso a todas las herramientas avanzadas.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsSubModalOpen(true)}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all hover:scale-105 flex items-center gap-2"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Actualizar a Plan Pyme Contratista (Ilimitado)</span>
+                </button>
               </div>
             ) : (
               <div className="p-16 text-center text-slate-400 text-xs bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col items-center justify-center gap-3">

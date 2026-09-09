@@ -93,7 +93,7 @@ export async function checkExtensionAvailability(): Promise<ExtensionStatus> {
 /**
  * Convierte un objeto File en base64 para transmitir a la extensión
  */
-export function fileToBase64(file: File): Promise<string> {
+export function fileToBase64(file: File | Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

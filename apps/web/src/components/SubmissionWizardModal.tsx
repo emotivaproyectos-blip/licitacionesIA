@@ -466,13 +466,10 @@ export const SubmissionWizardModal: React.FC<SubmissionWizardModalProps> = ({
   // Descargar ZIP completo
   const handleDownloadCompleteZip = async () => {
     try {
-      const userAttFiles: Record<string, File> = {};
-      Object.entries(attachments).forEach(([k, v]) => {
-        if (v && v.file) {
-          userAttFiles[k] = v.file;
-        }
+      const zipBlob = await generateDossierZip(company, tender, {
+        signedLetter: signedLetter ? { file: signedLetter, name: signedLetter.name } : null,
+        attachedFiles: attachments
       });
-      const zipBlob = await generateDossierZip(company, tender, userAttFiles);
       triggerFileDownload(zipBlob, `EXPEDIENTE_RADICADO_${tender.process_number.replace(/[^a-zA-Z0-9_-]/g, '_')}.zip`);
     } catch (err) {
       console.error('Error generando zip de postulación:', err);

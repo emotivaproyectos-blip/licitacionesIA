@@ -17,6 +17,7 @@ import {
   PlanId, 
   storePlanId, 
   getMonthlyEvaluationsUsage, 
+  resetMonthlyEvaluations,
   PLAN_LIMITS_MAP 
 } from '../services/planRestrictions';
 
@@ -113,25 +114,36 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               <BarChart3 className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               <div>
                 <span className="font-bold text-amber-950 dark:text-amber-200">
-                  Uso actual en Plan Explorador RUP: {usage.count} de {freeLimit} evaluaciones mensuales
+                  Uso actual en Plan Explorador RUP: {Math.min(usage.count, freeLimit)} de {freeLimit} evaluaciones mensuales
                 </span>
                 <span className="text-amber-800 dark:text-amber-300 text-[11px] block">
                   {usage.count >= freeLimit 
-                    ? '⚠️ Has alcanzado el límite mensual. Actualiza a Plan Pyme Contratista para evaluaciones ILIMITADAS.'
+                    ? '⚠️ Has alcanzado el límite mensual (5/5). Actualiza a Plan Pyme Contratista para evaluaciones ILIMITADAS.'
                     : `Te quedan ${freeLimit - usage.count} evaluación(es) disponibles para este mes.`}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <div className="w-24 bg-amber-200 dark:bg-amber-900 h-2 rounded-full overflow-hidden">
                 <div 
                   className={`h-full ${usage.count >= freeLimit ? 'bg-rose-500' : 'bg-amber-600'}`} 
-                  style={{ width: `${Math.min(100, (usage.count / freeLimit) * 100)}%` }}
+                  style={{ width: `${Math.min(100, (Math.min(usage.count, freeLimit) / freeLimit) * 100)}%` }}
                 />
               </div>
               <span className="font-bold text-amber-900 dark:text-amber-200 text-[11px] font-mono">
-                {usage.count}/{freeLimit}
+                {Math.min(usage.count, freeLimit)}/{freeLimit}
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  resetMonthlyEvaluations();
+                  onPlanUpgraded('free');
+                }}
+                className="px-2 py-1 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 dark:bg-amber-900/60 dark:hover:bg-amber-800 dark:text-amber-200 text-[10px] font-bold transition-all"
+                title="Reiniciar contador a 0/5 para pruebas de desarrollo"
+              >
+                Reiniciar (Demo)
+              </button>
             </div>
           </div>
         )}

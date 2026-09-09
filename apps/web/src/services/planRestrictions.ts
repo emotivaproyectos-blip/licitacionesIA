@@ -138,18 +138,27 @@ interface MonthlyEvaluationsData {
 }
 
 /**
- * Obtiene las evaluaciones consumidas en el mes actual
+ * Obtiene las evaluaciones consumidas en el mes actual (máximo 5 para el Plan Free)
  */
 export function getMonthlyEvaluationsUsage(): { count: number; evaluatedTenderIds: string[] } {
   try {
     const currentMonth = getCurrentMonthKey();
     const raw = localStorage.getItem(STORAGE_EVALUATIONS_KEY);
+    const freeLimit = PLAN_LIMITS_MAP.free.maxMonthlyEvaluations;
     if (raw) {
       const parsed: MonthlyEvaluationsData = JSON.parse(raw);
       if (parsed.monthKey === currentMonth) {
+        // Auto-sanitización: si por algún motivo había más de 5, recortar a 5 y corregir localStorage
+        const sanitizedIds = (parsed.evaluatedTenderIds || []).slice(0, freeLimit);
+        if (parsed.evaluatedTenderIds && parsed.evaluatedTenderIds.length > freeLimit) {
+          localStorage.setItem(STORAGE_EVALUATIONS_KEY, JSON.stringify({
+            monthKey: currentMonth,
+            evaluatedTenderIds: sanitizedIds
+          }));
+        }
         return {
-          count: parsed.evaluatedTenderIds.length,
-          evaluatedTenderIds: parsed.evaluatedTenderIds
+          count: sanitizedIds.length,
+          evaluatedTenderIds: sanitizedIds
         };
       }
     }
@@ -160,31 +169,46 @@ export function getMonthlyEvaluationsUsage(): { count: number; evaluatedTenderId
 }
 
 /**
- * Registra una licitación como evaluada en el mes actual si no estaba registrada
+ * Registra una licitación como evaluada en el mes actual si no estaba registrada.
+ * Si el usuario está en un plan ilimitado (pyme/enterprise), no consume la cuota del plan gratuito.
+ * Si el usuario está en plan gratuito y ya tiene 5 evaluaciones, no permite registrar más.
  */
-export function recordTenderEvaluation(tenderId: string): { count: number; isNew: boolean } {
+export function recordTenderEvaluation(tenderId: string, planId: PlanId = 'free'): { count: number; isNew: boolean; allowed: boolean } {
+  // En planes ilimitados no se consume la cuota del plan gratuito
+  if (planId !== 'free') {
+    return { count: 0, isNew: false, allowed: true };
+  }
+
   try {
     const currentMonth = getCurrentMonthKey();
     const usage = getMonthlyEvaluationsUsage();
+    const freeLimit = PLAN_LIMITS_MAP.free.maxMonthlyEvaluations;
     
-    if (!usage.evaluatedTenderIds.includes(tenderId)) {
-      const updatedIds = [...usage.evaluatedTenderIds, tenderId];
-      const data: MonthlyEvaluationsData = {
-        monthKey: currentMonth,
-        evaluatedTenderIds: updatedIds
-      };
-      localStorage.setItem(STORAGE_EVALUATIONS_KEY, JSON.stringify(data));
-      return { count: updatedIds.length, isNew: true };
+    // Si ya está evaluada en este mes, se permite el acceso sin consumir un cupo nuevo
+    if (usage.evaluatedTenderIds.includes(tenderId)) {
+      return { count: usage.count, isNew: false, allowed: true };
     }
-    return { count: usage.evaluatedTenderIds.length, isNew: false };
+
+    // Si ya alcanzó el tope mensual de 5, bloquear y no registrar
+    if (usage.count >= freeLimit) {
+      return { count: usage.count, isNew: false, allowed: false };
+    }
+
+    const updatedIds = [...usage.evaluatedTenderIds, tenderId].slice(0, freeLimit);
+    const data: MonthlyEvaluationsData = {
+      monthKey: currentMonth,
+      evaluatedTenderIds: updatedIds
+    };
+    localStorage.setItem(STORAGE_EVALUATIONS_KEY, JSON.stringify(data));
+    return { count: updatedIds.length, isNew: true, allowed: true };
   } catch (e) {
     console.error('Error recording tender evaluation:', e);
-    return { count: 0, isNew: false };
+    return { count: 0, isNew: false, allowed: false };
   }
 }
 
 /**
- * Reinicia el contador de evaluaciones (útil para pruebas o cambio de plan)
+ * Reinicia el contador de evaluaciones (útil para pruebas, demo o cambio de ciclo)
  */
 export function resetMonthlyEvaluations(): void {
   try {
