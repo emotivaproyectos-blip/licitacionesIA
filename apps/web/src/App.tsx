@@ -1905,6 +1905,17 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
                           </>
                         )}
                       </span>
+
+                      {/* BOTÓN CERRAR DETALLE (X) */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTender(null)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1"
+                        title="Cerrar detalle de convocatoria"
+                        aria-label="Cerrar detalle"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
 
@@ -2701,6 +2712,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           onClose={() => setIsSubmissionWizardOpen(false)}
           company={company}
           tender={selectedTender}
+          userEmail={userSession?.email || company.email}
           signedLetter={signedLetters[selectedTender.id] || null}
           dossierDocs={dossierDocsMap[selectedTender.id]}
           userAttachments={dossierAttachmentsMap[selectedTender.id] || {}}

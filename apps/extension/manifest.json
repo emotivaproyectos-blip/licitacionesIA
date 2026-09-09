@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "LicitIA - Asistente de Radicación Oficial SECOP II",
+  "version": "1.0.0",
+  "description": "Asistente inteligente de radicación en segundo plano para LicitIA ante SECOP II (Colombia Compra Eficiente).",
+  "permissions": [
+    "tabs",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://community.secop.gov.co/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.licitia.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.licitia.com/*"
+      ],
+      "js": ["web_bridge.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://community.secop.gov.co/*"
+      ],
+      "js": ["secop_automator.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "LicitIA Copilot SECOP II"
+  }
+}

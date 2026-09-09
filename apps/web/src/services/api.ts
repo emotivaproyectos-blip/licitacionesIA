@@ -84,21 +84,39 @@ export function resolveSecopUrl(
   }
 
   if (platform === 'SECOP_I') {
-    // Si candidateUrl es una URL directa válida sin referencias a fallbacks ficticios
-    if (candidateUrl && candidateUrl.startsWith('http')) {
-      if (!candidateUrl.includes('RAD-SECOP1') && !candidateUrl.includes('SECOP1.')) {
-        return candidateUrl;
+    // 1. Si candidateUrl ya contiene numConstancia directo oficial (ej: 26-13-14788089)
+    if (candidateUrl && candidateUrl.includes('numConstancia=')) {
+      const matchUrl = candidateUrl.match(/numConstancia=([0-9_-]+)/);
+      if (matchUrl) {
+        const cleanC = matchUrl[1].replace(/_/g, '-');
+        if (/^\d{2}-\d+-\d+$/.test(cleanC)) {
+          return `https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=${cleanC}`;
+        }
       }
     }
 
-    // El detalle de SECOP I requiere obligatoriamente el numConstancia oficial (formato numérico ej: 26-13-14788089)
-    const constanciaCandidate = (numConstancia || secopId || processNum || '').replace(/^SECOP1\./, '').trim();
-    if (/^\d{2}-\d+-\d+$/.test(constanciaCandidate)) {
-      return `https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=${encodeURIComponent(constanciaCandidate)}`;
+    // 2. Si candidateUrl es una URL directa válida (y no es inicioConsulta ni tiene mock RAD-SECOP1)
+    if (candidateUrl && candidateUrl.startsWith('http') && !candidateUrl.includes('RAD-SECOP1') && !candidateUrl.includes('inicioConsulta')) {
+      return candidateUrl;
     }
 
-    // Si no se dispone de un número de constancia oficial válido, remitir al buscador oficial de SECOP I
-    // para evitar que el portal contratos.gov.co muestre un formulario vacío con error
+    // 3. Extraer constancia oficial en formato numérico (ej: 26-13-14788089 o 26_13_14788089)
+    const sources = [numConstancia, secopId, processNum, candidateUrl];
+    for (const src of sources) {
+      if (!src) continue;
+      const normalized = String(src).replace(/^SECOP1\./i, '').replace(/_/g, '-');
+      const match = normalized.match(/\b(\d{2}-\d+-\d+)\b/);
+      if (match) {
+        return `https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=${match[1]}`;
+      }
+    }
+
+    // 4. Si processNum o secopId contiene un identificador real, dirigir al detalle directamente
+    const cleanNum = (numConstancia || secopId || processNum || '').replace(/^SECOP1\./i, '').trim();
+    if (cleanNum && !cleanNum.includes('RAD-SECOP1') && !cleanNum.includes('RAD_')) {
+      return `https://www.contratos.gov.co/consultas/detalleProceso.do?numConstancia=${encodeURIComponent(cleanNum)}`;
+    }
+
     return 'https://www.contratos.gov.co/consultas/inicioConsulta.do';
   }
 
@@ -169,31 +187,31 @@ export async function fetchLiveTenders(
   limit: number = 35,
   platform: 'all' | 'SECOP_I' | 'SECOP_II' = 'all'
 ): Promise<TenderDTO[]> {
-  // 1. Intentar consultar el backend de FastAPI en Render
-  try {
-    const params = new URLSearchParams();
-    params.set('limit', String(limit));
-    params.set('platform', platform);
-    if (query && query.trim()) params.set('q', query.trim());
-    if (department && department.trim()) params.set('department', department.trim());
+  // 1. Intentar consultar el backend de FastAPI en Render para SECOP II
+  if (platform === 'SECOP_II') {
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', String(limit));
+      params.set('platform', platform);
+      if (query && query.trim()) params.set('q', query.trim());
+      if (department && department.trim()) params.set('department', department.trim());
 
-    const res = await fetch(`${API_BASE_URL}/api/v1/secop/live?${params.toString()}`, {
-      signal: AbortSignal.timeout(8000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const normalized = normalizeAndFilterActive(data);
-        const filtered = platform !== 'all' 
-          ? normalized.filter(item => item.source_platform === platform)
-          : normalized;
-        if (filtered.length > 0) {
-          return filtered.slice(0, limit);
+      const res = await fetch(`${API_BASE_URL}/api/v1/secop/live?${params.toString()}`, {
+        signal: AbortSignal.timeout(6000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const cleanData = data.filter(d => !String(d.process_number || '').includes('RAD-SECOP1') && !String(d.id || '').includes('RAD_TI'));
+          const normalized = normalizeAndFilterActive(cleanData);
+          if (normalized.length > 0) {
+            return normalized.slice(0, limit);
+          }
         }
       }
+    } catch (backendError) {
+      console.warn('[LicitIA API] Backend timeout o cold-start, conectando con SODA...', backendError);
     }
-  } catch (backendError) {
-    console.warn('[LicitIA API] Backend timeout o cold-start, conectando con SODA/Fallback...', backendError);
   }
 
   // 2. Conexión directa a Datos Abiertos de Colombia Compra Eficiente (SODA REST API)
@@ -450,6 +468,7 @@ function normalizeAndFilterActive(list: any[]): TenderDTO[] {
   const now = new Date();
 
   return list
+    .filter(t => !String(t.process_number || '').includes('RAD-SECOP1') && !String(t.id || '').includes('RAD_TI') && !String(t.secop_id || '').includes('RAD_TI'))
     .map(t => {
       let validClosing = t.closing_date;
       if (!validClosing) {
@@ -491,7 +510,7 @@ function normalizeAndFilterActive(list: any[]): TenderDTO[] {
         secop_id: t.secop_id || uniqueId,
         closing_date: validClosing,
         source_platform: plat,
-        process_url: resolveSecopUrl(plat, t.process_url, t.process_number, uniqueId),
+        process_url: resolveSecopUrl(plat, t.process_url, t.process_number, uniqueId, t.numero_de_constancia),
         budget_cop: valCop,
         budget_smmlv: valSmmlv,
         is_active: true,

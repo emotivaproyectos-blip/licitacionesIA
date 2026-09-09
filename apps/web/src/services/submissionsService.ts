@@ -95,9 +95,17 @@ export function getApplicationsHistory(companyNit?: string): ApplicationRecord[]
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Purgar postulaciones demo anteriores
+    // Purgar postulaciones demo o mock anteriores
     const realApps = parsed.filter(app => 
-      Boolean(app && app.id && !app.id.startsWith('app-epm-') && !app.id.startsWith('app-mintic-') && !app.id.startsWith('app_demo_'))
+      Boolean(
+        app && 
+        app.id && 
+        !app.id.startsWith('app-epm-') && 
+        !app.id.startsWith('app-mintic-') && 
+        !app.id.startsWith('app_demo_') &&
+        !String(app.processNumber || '').includes('RAD-SECOP1') &&
+        !String(app.tenderId || '').includes('RAD_TI')
+      )
     );
 
     if (realApps.length !== parsed.length) {
