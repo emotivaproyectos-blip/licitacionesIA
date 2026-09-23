@@ -20,6 +20,7 @@ import {
   sendMagicLink, 
   signInWithGoogle 
 } from '../services/supabase';
+import emotivaLogo from '../assets/logo.webp';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -164,8 +165,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* ENCABEZADO */}
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-md shadow-blue-600/20">
-              <KeyRound className="w-5 h-5" />
+            <div className="h-10 w-10 flex items-center justify-center flex-shrink-0">
+              <img src={emotivaLogo} alt="Emotiva LicitIA" className="w-full h-full object-contain drop-shadow-sm" />
             </div>
             <div>
               <div className="flex items-center gap-2">

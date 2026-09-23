@@ -74,6 +74,17 @@ export interface TenderData {
 export type DocCategory = 'juridico' | 'financiero' | 'tecnico' | 'economico';
 export type DocSource = 'agent_generated' | 'user_attached' | 'pliego_reference';
 
+export type PreliminaryReviewStatus = 
+  | 'cumple preliminarmente'
+  | 'pendiente de soporte'
+  | 'no aplica'
+  | 'requiere validación manual'
+  | 'pendiente de evaluar' 
+  | 'evidencia aportada' 
+  | 'falta evidencia' 
+  | 'posible incumplimiento' 
+  | 'requiere revisión';
+
 export interface RequiredDossierDoc {
   id: string;
   title: string;
@@ -84,6 +95,12 @@ export interface RequiredDossierDoc {
   filename: string;
   legal_basis: string;
   description: string;
+  source_reference?: string;
+  proponent_evidence?: string;
+  missing_info?: string;
+  preliminary_status?: PreliminaryReviewStatus;
+  review_date?: string;
+  review_version?: string;
 }
 
 export interface AttachedFileInfo {
@@ -945,54 +962,155 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
   const contractType = (tender.contract_type || '').toLowerCase();
   const budget = tender.budget_cop || 0;
 
-  // Si es una mínima cuantía
-  const isMinima = contractType.includes('mínima') || contractType.includes('minima') || budget < 50_000_000;
-  if (isMinima) {
+  const isObra = contractType.includes('obra') || title.includes('obra') || title.includes('construc') || title.includes('mantenimiento');
+  const isConsultoria = contractType.includes('consultor') || contractType.includes('interventor') || title.includes('consultor');
+  const isMinimaCuantia = contractType.includes('mínima') || contractType.includes('minima') || (tender as any).is_minima_cuantia || budget < 50_000_000;
+  const isPersonaNatural = (company as any)?.proponent_type === 'persona_natural' || (company as any)?.proponent_type === 'natural';
+  const currentDateStr = new Date().toISOString().slice(0, 10);
+
+  // CASO ESPECIAL: MÍNIMA CUANTÍA (Ley 1150 de 2007 Art 6 Parágrafo 1 / Decreto 1082 de 2015)
+  if (isMinimaCuantia) {
+    const compName = company?.name || 'el proponente';
+    const compNit = company?.nit || '';
+    const compExp = company?.smmlv_experience || 0;
+
     return [
       {
         id: 'letter',
-        title: 'Carta de Presentación de la Oferta (Formato Oficial)',
+        title: 'Carta de Presentación y Oferta de Mínima Cuantía',
         category: 'juridico',
         mandatory: true,
         source: 'agent_generated',
         template_type: 'letter',
-        filename: `01_Carta_Presentacion_${processNum}.doc`,
-        legal_basis: 'Invitación Pública de Mínima Cuantía / Decreto 1082 de 2015',
-        description: 'Carta formal de postulación, manifestación bajo gravedad de juramento y aceptación de condiciones.'
+        filename: `01_Carta_Oferta_Minima_Cuantia_${processNum}.doc`,
+        legal_basis: 'Decreto 1082 de 2015 (Art. 2.2.1.2.1.5.1)',
+        description: 'Manifestación formal de aceptación de la invitación y valor ofertado.',
+        source_reference: 'Invitación Pública SECOP II - Términos de la Convocatoria',
+        proponent_evidence: `Carta generada automáticamente para ${compName}`,
+        missing_info: 'Firma y verificación de datos por el proponente',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
       {
         id: 'economy',
-        title: 'Formulario de Oferta Económica Desglosada',
+        title: 'Propuesta Económica (Menor Valor)',
         category: 'economico',
         mandatory: true,
         source: 'agent_generated',
         template_type: 'economy',
-        filename: `02_Oferta_Economica_${processNum}.doc`,
-        legal_basis: 'Criterio de Menor Precio Ofrecido (Decreto 1082 de 2015)',
-        description: `Propuesta económica desglosada por ${formatCOP(budget * 0.985)} COP.`
+        filename: `02_Propuesta_Economica_${processNum}.doc`,
+        legal_basis: 'Decreto 1082 de 2015 - Selección por Menor Precio',
+        description: `Desglose económico oficial por ${formatCOP(budget * 0.985)} COP.`,
+        source_reference: 'Invitación Pública SECOP II - Formulario Económico',
+        proponent_evidence: `Presupuesto oficial referencial: ${formatCOP(budget)} COP`,
+        missing_info: 'Revisión final de ítems y precios unitarios',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
+      },
+      {
+        id: 'matrix',
+        title: 'Ficha Técnica y Manifestación de Especificaciones',
+        category: 'tecnico',
+        mandatory: true,
+        source: 'agent_generated',
+        template_type: 'matrix',
+        filename: `03_Ficha_Tecnica_Minima_Cuantia_${processNum}.doc`,
+        legal_basis: 'Decreto 1082 de 2015 (Art. 2.2.1.2.1.5.1)',
+        description: 'Acreditación del cumplimiento de especificaciones técnicas y condiciones mínimas exigidas.',
+        source_reference: 'Invitación Pública - Anexo de Especificaciones Técnicas',
+        proponent_evidence: 'Especificaciones declaradas en ficha de proponente',
+        missing_info: 'Acreditar fichas técnicas específicas del pliego',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
       {
         id: 'integrity',
-        title: 'Certificado de Inhabilidades e Incompatibilidades',
+        title: 'Certificado de Inexistencia de Inhabilidades e Incompatibilidades',
         category: 'juridico',
         mandatory: true,
         source: 'agent_generated',
         template_type: 'integrity',
-        filename: `03_Certificado_Inhabilidades_${processNum}.doc`,
-        legal_basis: 'Artículo 8 Ley 80 de 1993 y Ley 1474 de 2011',
-        description: 'Declaración juramentada de inexistencia de inhabilidades, incompatibilidades o prohibiciones legales.'
+        filename: `04_Certificado_Inhabilidades_${processNum}.doc`,
+        legal_basis: 'Ley 80 de 1993 (Art. 8) y Ley 1474 de 2011',
+        description: 'Certificación juramentada de ausencia de causales de inhabilidad o conflicto de intereses.',
+        source_reference: 'Estatuto de Contratación Pública (Ley 80)',
+        proponent_evidence: `Certificación juramentada para ${compName}`,
+        missing_info: 'Ninguna (generado automáticamente por LicitIA)',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
       {
         id: 'mipyme',
-        title: 'Certificación Mipyme e Industria Nacional',
+        title: 'Certificación Mipyme e Incentivo a Industria Nacional',
         category: 'juridico',
         mandatory: true,
         source: 'agent_generated',
         template_type: 'mipyme',
-        filename: `04_Certificado_Mipyme_Ley2069_${processNum}.doc`,
+        filename: `05_Certificado_Mipyme_Ley2069_${processNum}.doc`,
         legal_basis: 'Ley 2069 de 2020 / Decreto 1860 de 2021',
-        description: 'Certificación de tamaño empresarial Mipyme y componentes de origen nacional colombiano.'
+        description: 'Certificación para criterios de preferencia y fomento al emprendimiento nacional.',
+        source_reference: 'Criterios de Desempate y Preferencia',
+        proponent_evidence: 'Condición declarada en perfil empresarial',
+        missing_info: 'Verificar tamaño empresarial declarado',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
+      ...(isPersonaNatural ? [
+        {
+          id: 'cedula_natural',
+          title: 'Cédula de Ciudadanía del Proponente (Persona Natural)',
+          category: 'juridico' as DocCategory,
+          mandatory: true,
+          source: 'user_attached' as DocSource,
+          filename: 'Cedula_Proponente_Natural.pdf',
+          legal_basis: 'Identificación Legal Proponente (Persona Natural) - Decreto 1082 de 2015',
+          description: 'Copia legible del documento de identificación del proponente persona natural.',
+          source_reference: 'Invitación Pública - Capacidad Jurídica Persona Natural',
+          proponent_evidence: compNit ? `Identificación declarada: ${compNit}` : 'Pendiente de adjuntar',
+          missing_info: compNit ? 'Adjuntar copia escaneada legible de la cédula' : 'Número de identificación del proponente',
+          preliminary_status: compNit ? ('cumple preliminarmente' as PreliminaryReviewStatus) : ('pendiente de soporte' as PreliminaryReviewStatus),
+          review_date: currentDateStr,
+          review_version: 'v1.0'
+        }
+      ] : [
+        {
+          id: 'camara_comercio',
+          title: 'Certificado de Existencia y Representación Legal',
+          category: 'juridico' as DocCategory,
+          mandatory: true,
+          source: 'user_attached' as DocSource,
+          filename: 'Certificado_Existencia_Representacion_Legal.pdf',
+          legal_basis: 'Cámara de Comercio (Vigencia no mayor a 30 días)',
+          description: 'Certificado de personería jurídica emitido por la Cámara de Comercio correspondiente.',
+          source_reference: 'Invitación Pública - Capacidad Jurídica Persona Jurídica',
+          proponent_evidence: compNit ? `NIT de la sociedad: ${compNit}` : 'Pendiente de acreditación',
+          missing_info: 'Certificado de existencia con vigencia no superior a 30 días',
+          preliminary_status: 'pendiente de soporte' as PreliminaryReviewStatus,
+          review_date: currentDateStr,
+          review_version: 'v1.0'
+        },
+        {
+          id: 'cedula_rep_legal',
+          title: 'Cédula del Representante Legal (Ampliada al 150%)',
+          category: 'juridico' as DocCategory,
+          mandatory: true,
+          source: 'user_attached' as DocSource,
+          filename: 'Cedula_Representante_Legal_150.pdf',
+          legal_basis: 'Identificación Legal del Suscriptor',
+          description: 'Copia legible del documento de identidad del representante legal.',
+          source_reference: 'Invitación Pública - Capacidad Jurídica',
+          proponent_evidence: 'Pendiente de adjuntar',
+          missing_info: 'Copia legible de cédula ampliada al 150%',
+          preliminary_status: 'pendiente de soporte' as PreliminaryReviewStatus,
+          review_date: currentDateStr,
+          review_version: 'v1.0'
+        }
+      ]),
       {
         id: 'rut_cert',
         title: 'Registro Único Tributario (RUT) Actualizado',
@@ -1001,17 +1119,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
         source: 'user_attached',
         filename: 'RUT_Actualizado.pdf',
         legal_basis: 'Capacidad Tributaria DIAN',
-        description: 'Copia del RUT con fecha de generación reciente y actividad económica correspondiente.'
-      },
-      {
-        id: 'camara_comercio',
-        title: 'Certificado de Existencia y Representación Legal',
-        category: 'juridico',
-        mandatory: true,
-        source: 'user_attached',
-        filename: 'Certificado_Existencia_Representacion_Legal.pdf',
-        legal_basis: 'Cámara de Comercio (Vigencia no mayor a 30 días)',
-        description: 'Certificado de matrícula mercantil expedido por la Cámara de Comercio.'
+        description: 'Copia del RUT con actividad económica acorde al objeto contractual.',
+        source_reference: 'Invitación Pública - Capacidad Tributaria',
+        proponent_evidence: compNit ? `NIT ${compNit}` : 'Pendiente de acreditar',
+        missing_info: 'Copia del RUT actualizado con fecha reciente de descarga',
+        preliminary_status: 'pendiente de soporte',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
       {
         id: 'parafiscales_cert',
@@ -1021,23 +1135,69 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
         source: 'user_attached',
         filename: 'Certificado_Aportes_Parafiscales_Ley789.pdf',
         legal_basis: 'Ley 789 de 2002 (Art. 50)',
-        description: 'Paz y salvo de aportes parafiscales suscrito por Revisor Fiscal o Representante Legal.'
+        description: 'Paz y salvo de aportes parafiscales de los últimos 6 meses suscrito por Revisor Fiscal o Representante.',
+        source_reference: 'Invitación Pública - Cumplimiento Parafiscal',
+        proponent_evidence: 'Declaración juramentada en Ficha',
+        missing_info: 'Certificación firmada acreditando pagos de seguridad social',
+        preliminary_status: 'cumple preliminarmente',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       },
       {
-        id: 'cedula_rep_legal',
-        title: 'Cédula del Representante Legal (Ampliada al 150%)',
+        id: 'guarantee_policy',
+        title: 'Garantía de Seriedad de la Oferta (Facultativa en Mínima Cuantía)',
         category: 'juridico',
-        mandatory: true,
+        mandatory: false,
         source: 'user_attached',
-        filename: 'Cedula_Representante_Legal_150.pdf',
-        legal_basis: 'Identificación Legal del Suscriptor',
-        description: 'Documento de identidad legible del representante legal debidamente ampliado.'
+        filename: `Poliza_Seriedad_Oferta_${processNum}.pdf`,
+        legal_basis: 'Decreto 1082 de 2015 (Art. 2.2.1.2.1.5.2) - Las garantías son facultativas en Mínima Cuantía',
+        description: 'En Mínima Cuantía las garantías no son obligatorias por regla general; solo se aportan si la entidad las justificó expresamente.',
+        source_reference: 'Invitación Pública - Capítulo de Garantías',
+        proponent_evidence: 'No exigida por regla general (Decreto 1082/2015)',
+        missing_info: 'No aplica en Mínima Cuantía',
+        preliminary_status: 'no aplica',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
+      },
+      {
+        id: 'rup_cert',
+        title: 'Certificado RUP (No Exigible en Mínima Cuantía)',
+        category: 'financiero',
+        mandatory: false,
+        source: 'user_attached',
+        filename: 'Certificado_RUP_CamaraComercio.pdf',
+        legal_basis: 'Ley 1150 de 2007 (Art. 6 Parágrafo 1) - Excepción legal expresa',
+        description: 'La ley colombiana exonera expresamente de RUP a las contrataciones de mínima cuantía. La entidad no puede rechazar la oferta por falta de RUP.',
+        source_reference: 'Ley 1150 de 2007 (Art. 6 Par. 1)',
+        proponent_evidence: 'Exoneración legal expresa (Ley 1150/2007)',
+        missing_info: 'No aplica en Mínima Cuantía',
+        preliminary_status: 'no aplica',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
+      },
+      {
+        id: 'experiencia_soportes',
+        title: 'Certificaciones de Experiencia Previa (Condicional)',
+        category: 'tecnico',
+        mandatory: false,
+        source: 'user_attached',
+        filename: 'Certificaciones_Experiencia_Acreditada.pdf',
+        legal_basis: 'Decreto 1082 de 2015',
+        description: 'Aportar únicamente si la invitación de la entidad exige acreditar contratos previos similares.',
+        source_reference: 'Invitación Pública - Experiencia Habilitante',
+        proponent_evidence: compExp > 0 ? `Experiencia registrada: ${compExp} SMMLV` : 'Sin contratos exigidos por defecto',
+        missing_info: 'Verificar si la entidad solicita experiencia específica en la invitación',
+        preliminary_status: 'requiere validación manual',
+        review_date: currentDateStr,
+        review_version: 'v1.0'
       }
     ];
   }
 
-  const isObra = contractType.includes('obra') || title.includes('obra') || title.includes('construc') || title.includes('mantenimiento');
-  const isConsultoria = contractType.includes('consultor') || contractType.includes('interventor') || title.includes('consultor');
+  const compNameOrd = company?.name || 'el proponente';
+  const compNitOrd = company?.nit || '';
+  const compExpOrd = company?.smmlv_experience || 0;
+  const hasRupOrd = (company as any)?.has_rup;
 
   const docs: RequiredDossierDoc[] = [
     {
@@ -1049,7 +1209,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       template_type: 'letter',
       filename: `01_Anexo_1_Carta_Presentacion_${processNum}.doc`,
       legal_basis: 'Decreto 1082 de 2015, Artículo 2.2.1.1.2.2.1',
-      description: 'Carta formal con identificación del proponente, manifestación juramentada y valor de la oferta.'
+      description: 'Carta formal con identificación del proponente, manifestación juramentada y valor de la oferta.',
+      source_reference: 'Pliego de Condiciones - Sección Requisitos',
+      proponent_evidence: `Generada para ${compNameOrd}`,
+      missing_info: 'Firma formal del representante legal',
+      preliminary_status: 'cumple preliminarmente',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'matrix',
@@ -1060,7 +1226,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       template_type: 'matrix',
       filename: `02_Matriz_Financiera_RUP_${processNum}.doc`,
       legal_basis: 'Ley 1150 de 2007 (Art. 6)',
-      description: 'Cuadro comparativo oficial de Liquidez, Endeudamiento y Experiencia SMMLV auditada.'
+      description: 'Cuadro comparativo oficial de Liquidez, Endeudamiento y Experiencia SMMLV auditada.',
+      source_reference: 'Pliego de Condiciones - Requisitos Financieros',
+      proponent_evidence: 'Cifras extraídas del perfil empresarial',
+      missing_info: 'Revisión y validación de índices financieros',
+      preliminary_status: 'cumple preliminarmente',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'economy',
@@ -1071,7 +1243,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       template_type: 'economy',
       filename: `03_Propuesta_Economica_${processNum}.doc`,
       legal_basis: 'Manual de Formulación Económica Colombia Compra Eficiente',
-      description: `Desglose económico oficial por ${formatCOP(budget * 0.985)} COP.`
+      description: `Desglose económico oficial por ${formatCOP(budget * 0.985)} COP.`,
+      source_reference: 'Pliego de Condiciones - Formulario Económico',
+      proponent_evidence: `Valor estimado: ${formatCOP(budget * 0.985)} COP`,
+      missing_info: 'Verificación de costos unitarios e impuestos aplicables',
+      preliminary_status: 'cumple preliminarmente',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'integrity',
@@ -1082,7 +1260,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       template_type: 'integrity',
       filename: `04_Certificado_Inhabilidades_${processNum}.doc`,
       legal_basis: 'Ley 80 de 1993 (Art. 8) y Ley 1474 de 2011',
-      description: 'Certificación juramentada de ausencia de inhabilidades, incompatibilidades o conflicto de intereses.'
+      description: 'Certificación juramentada de ausencia de inhabilidades, incompatibilidades o conflicto de intereses.',
+      source_reference: 'Ley 80 de 1993 (Art. 8)',
+      proponent_evidence: `Declaración para ${compNameOrd}`,
+      missing_info: 'Firma del representante legal',
+      preliminary_status: 'cumple preliminarmente',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'mipyme',
@@ -1093,7 +1277,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       template_type: 'mipyme',
       filename: `05_Certificado_Mipyme_Ley2069_${processNum}.doc`,
       legal_basis: 'Ley 2069 de 2020 / Decreto 1860 de 2021',
-      description: 'Certificación para incentivo a la producción nacional y criterios de preferencia contractual.'
+      description: 'Certificación para incentivo a la producción nacional y criterios de preferencia contractual.',
+      source_reference: 'Decreto 1860 de 2021',
+      proponent_evidence: 'Condición Mipyme declarada',
+      missing_info: 'Acreditar certificado de tamaño empresarial',
+      preliminary_status: 'cumple preliminarmente',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'rup_cert',
@@ -1103,7 +1293,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'Certificado_RUP_CamaraComercio.pdf',
       legal_basis: 'Ley 1150 de 2007 (Art. 6)',
-      description: 'Certificado RUP en firme con vigencia no mayor a 30 días calendario.'
+      description: 'Certificado RUP en firme con vigencia no mayor a 30 días calendario.',
+      source_reference: 'Pliego de Condiciones - Capacidad Financiera y de Experiencia',
+      proponent_evidence: hasRupOrd ? 'RUP cargado en plataforma' : 'Pendiente de adjuntar RUP vigente',
+      missing_info: hasRupOrd ? 'Verificar fecha de firmeza del RUP' : 'Certificado RUP expedido por Cámara de Comercio',
+      preliminary_status: hasRupOrd ? 'cumple preliminarmente' : 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'camara_comercio',
@@ -1113,7 +1309,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'Certificado_Existencia_Representacion_Legal.pdf',
       legal_basis: 'Cámara de Comercio (Vigencia no mayor a 30 días)',
-      description: 'Certificado mercantil expedido por la Cámara de Comercio correspondiente.'
+      description: 'Certificado mercantil expedido por la Cámara de Comercio correspondiente.',
+      source_reference: 'Pliego de Condiciones - Capacidad Jurídica',
+      proponent_evidence: compNitOrd ? `NIT ${compNitOrd}` : 'Pendiente de acreditación',
+      missing_info: 'Certificado de Cámara de Comercio con expedición no mayor a 30 días',
+      preliminary_status: 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'guarantee_policy',
@@ -1123,7 +1325,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: `Poliza_Seriedad_Oferta_${processNum}.pdf`,
       legal_basis: `Decreto 1082 de 2015 (Art. 2.2.1.2.3.1.2) - 10% del Presupuesto Oficial (${formatCOP(budget * 0.10)} COP)`,
-      description: `Póliza de seguros a favor de la entidad por ${formatCOP(budget * 0.10)} COP.`
+      description: `Póliza de seguros a favor de la entidad por ${formatCOP(budget * 0.10)} COP.`,
+      source_reference: 'Pliego de Condiciones - Garantías',
+      proponent_evidence: 'Póliza de aseguradora requerida',
+      missing_info: 'Expedir póliza de seriedad de la oferta ante compañía de seguros',
+      preliminary_status: 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'parafiscales_cert',
@@ -1133,7 +1341,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'Certificado_Aportes_Parafiscales_Ley789.pdf',
       legal_basis: 'Ley 789 de 2002 (Art. 50)',
-      description: 'Paz y salvo de aportes parafiscales de los últimos 6 meses suscrito por Revisor Fiscal o Representante.'
+      description: 'Paz y salvo de aportes parafiscales de los últimos 6 meses suscrito por Revisor Fiscal o Representante.',
+      source_reference: 'Ley 789 de 2002 (Art. 50)',
+      proponent_evidence: 'Declaración juramentada',
+      missing_info: 'Certificación expedida por Revisor Fiscal o Representante Legal',
+      preliminary_status: 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'rut_cert',
@@ -1143,7 +1357,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'RUT_Actualizado.pdf',
       legal_basis: 'Capacidad Tributaria DIAN',
-      description: 'Copia del RUT con actividad económica acorde al objeto contractual.'
+      description: 'Copia del RUT con actividad económica acorde al objeto contractual.',
+      source_reference: 'Estatuto Tributario',
+      proponent_evidence: compNitOrd ? `NIT ${compNitOrd}` : 'Pendiente de adjuntar',
+      missing_info: 'RUT descargado con fecha reciente de la DIAN',
+      preliminary_status: 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'cedula_rep_legal',
@@ -1153,7 +1373,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'Cedula_Representante_Legal_150.pdf',
       legal_basis: 'Identificación Legal del Suscriptor',
-      description: 'Copia legible del documento de identidad del representante legal.'
+      description: 'Copia legible del documento de identidad del representante legal.',
+      source_reference: 'Capacidad Jurídica',
+      proponent_evidence: 'Pendiente de adjuntar',
+      missing_info: 'Cédula legible ampliada al 150%',
+      preliminary_status: 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     },
     {
       id: 'experiencia_soportes',
@@ -1163,7 +1389,13 @@ export function getTenderRequiredDocuments(tender: TenderData, company?: Company
       source: 'user_attached',
       filename: 'Certificaciones_Experiencia_Acreditada.pdf',
       legal_basis: 'Requisitos Habilitantes de Experiencia RUP',
-      description: 'Actas de liquidación o certificaciones de contratos similares ejecutados a satisfacción.'
+      description: 'Actas de liquidación o certificaciones de contratos similares ejecutados a satisfacción.',
+      source_reference: 'Pliego de Condiciones - Experiencia Exigida',
+      proponent_evidence: `Contratos en RUP: ${compExpOrd} SMMLV`,
+      missing_info: 'Certificaciones o actas de liquidación con códigos UNSPSC',
+      preliminary_status: compExpOrd > 0 ? 'cumple preliminarmente' : 'pendiente de soporte',
+      review_date: currentDateStr,
+      review_version: 'v1.0'
     }
   ];
 

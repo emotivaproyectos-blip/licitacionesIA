@@ -3,7 +3,7 @@ FastAPI Server - Plataforma SaaS Emotiva LicitIA SECOP I & II
 API REST principal con arquitectura limpia, OpenAPI docs, ingesta en vivo de SECOP I y II.
 """
 
-from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -17,6 +17,13 @@ from app.modules.matching.engine import CompatibilityEngine, EvaluationResult
 from app.modules.secop.soda_client import SECOPDatosAbiertosClient, SECOPTenderDTO
 from app.modules.agents.workflows import ChatAgentNode, DossierAuditAgentNode
 from app.modules.documents.rup_extractor import RUPExtractorService, ExtractedRupData
+from app.modules.documents.proponent_profile import (
+    create_proponent_docx_template,
+    ProponentProfileExtractorService,
+    ProponentAuthorizationService,
+    ProponentProfileExtractionResult,
+    ConfirmProfileRequest
+)
 
 app = FastAPI(
     title="Emotiva LicitIA - Public Procurement Intelligence API",
@@ -61,6 +68,10 @@ class TenderResponse(BaseModel):
     unspsc_codes: List[str]
     process_url: Optional[str] = None
     source_platform: str = "SECOP_II"
+    modalidad_de_contratacion: Optional[str] = None
+    is_minima_cuantia: Optional[bool] = False
+    is_time_unspecified: Optional[bool] = False
+    requires_secop_verification: Optional[bool] = False
     compatibility_score: Optional[float] = None
     verdict: Optional[str] = None
 
@@ -164,6 +175,7 @@ async def list_tenders(
     department: Optional[str] = Query(None, description="Filtro por departamento"),
     q: Optional[str] = Query(None, description="Búsqueda de texto completo"),
     platform: str = Query("all", description="Filtro por plataforma: all, SECOP_I, SECOP_II"),
+    modality: Optional[str] = Query(None, description="Filtro por modalidad (ej: minima_cuantia)"),
     limit: int = Query(30, description="Límite de resultados")
 ):
     """Retorna el feed de licitaciones públicas reales consultadas en tiempo real desde SECOP I y SECOP II."""
@@ -172,7 +184,8 @@ async def list_tenders(
         department=department,
         query=q,
         status=status,
-        platform=platform
+        platform=platform,
+        modality=modality
     )
     
     responses = []
@@ -197,6 +210,10 @@ async def list_tenders(
             unspsc_codes=t.unspsc_codes,
             process_url=t.process_url,
             source_platform=t.source_platform,
+            modalidad_de_contratacion=t.modalidad_de_contratacion,
+            is_minima_cuantia=t.is_minima_cuantia,
+            is_time_unspecified=t.is_time_unspecified,
+            requires_secop_verification=t.requires_secop_verification,
             compatibility_score=None,
             verdict=None
         ))
@@ -326,8 +343,90 @@ async def extract_rup_from_file(file: UploadFile = File(...)):
     return await RUPExtractorService.extract_rup_data_with_ai(extracted_text, file.filename)
 
 # -----------------------------------------------------------------------------
-# Endpoints de Inteligencia de Mercado y Competencia (SECOP II)
+# Endpoints de Ficha de Proponente para Mínima Cuantía y Ruta sin RUP
 # -----------------------------------------------------------------------------
+
+@app.get("/api/v1/proponent-profile/template", tags=["Perfil Proponente sin RUP"])
+async def download_proponent_template(
+    proponent_type: str = Query("persona_juridica", description="persona_natural o persona_juridica"),
+    name: Optional[str] = Query(None, description="Nombre o Razón social prellenada"),
+    nit: Optional[str] = Query(None, description="NIT o Cédula"),
+    email: Optional[str] = Query(None, description="Correo de contacto"),
+    department: Optional[str] = Query(None, description="Departamento"),
+    city: Optional[str] = Query(None, description="Municipio")
+):
+    """
+    Genera y descarga en vivo la plantilla oficial editable (.docx)
+    'Ficha del proponente para mínima cuantía — LicitIA' con etiquetas estables
+    y datos conocidos del proponente precargados.
+    """
+    initial_data = {
+        "name": name or ("Mi Empresa S.A.S." if proponent_type == "persona_juridica" else "Juan Pérez"),
+        "nit": nit or ("900.000.000-1" if proponent_type == "persona_juridica" else "1.000.000.000"),
+        "id_type": "NIT" if proponent_type == "persona_juridica" else "CC",
+        "contact_email": email or "contacto@empresa.co",
+        "department": department or "Cundinamarca",
+        "city": city or "Bogotá D.C.",
+        "declared_activity": "Prestación de servicios, consultoría y suministro de bienes."
+    }
+
+    docx_stream = create_proponent_docx_template(proponent_type=proponent_type, initial_data=initial_data)
+    filename = f"Ficha_Proponente_Minima_Cuantia_{proponent_type}.docx"
+
+    return Response(
+        content=docx_stream.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+@app.post("/api/v1/proponent-profile/upload-extract", response_model=ProponentProfileExtractionResult, tags=["Perfil Proponente sin RUP"])
+async def upload_extract_proponent_profile(file: UploadFile = File(...)):
+    """
+    Recibe el archivo diligenciado de la 'Ficha del proponente' (.docx o .pdf con texto),
+    extrae sus campos estructurados (Sección A, B y C) y valida su legibilidad y completitud.
+    No envía el archivo al analizador de RUP.
+    """
+    fn_lower = file.filename.lower()
+    if not (fn_lower.endswith(".docx") or fn_lower.endswith(".pdf")):
+        raise HTTPException(
+            status_code=400,
+            detail="Formato de archivo no válido. Solo se admiten archivos .docx editables o .pdf con texto seleccionable."
+        )
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="El tamaño del archivo supera el límite de 15 MB.")
+
+    return await ProponentProfileExtractorService.process_proponent_file(file_bytes, file.filename)
+
+@app.post("/api/v1/proponent-profile/confirm", tags=["Perfil Proponente sin RUP"])
+async def confirm_proponent_profile(payload: ConfirmProfileRequest):
+    """
+    Valida en el servidor la completitud de la ficha y la confirmación explícita del usuario.
+    Otorga la habilitación de acceso al módulo de Mínima Cuantía.
+    """
+    decision = ProponentAuthorizationService.validate_and_authorize_profile(payload)
+    if not decision.get("authorized"):
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "No fue posible autorizar el perfil.", "errors": decision.get("errors", [])}
+        )
+    return decision
+
+@app.get("/api/v1/secop/minima-cuantia", response_model=List[SECOPTenderDTO], tags=["SECOP Ingesta en Vivo"])
+async def get_secop_minima_cuantia(
+    limit: int = Query(35, description="Número de licitaciones de mínima cuantía a consultar"),
+    department: Optional[str] = Query(None, description="Filtro por departamento"),
+    q: Optional[str] = Query(None, description="Búsqueda por palabra clave en el objeto")
+):
+    """Consulta procesos reales vigentes de Mínima Cuantía directamente desde el dataset p6dx-8zbt de SECOP II."""
+    return await SECOPDatosAbiertosClient.fetch_recent_tenders(
+        limit=limit,
+        department=department,
+        query=q,
+        platform="SECOP_II",
+        modality="minima_cuantia"
+    )
 
 @app.get("/api/v1/intelligence/competitors", tags=["Inteligencia de Mercado"])
 async def get_competitor_intelligence(

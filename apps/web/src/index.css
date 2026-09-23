@@ -7,6 +7,7 @@
     --background: 210 40% 98%;
     --foreground: 222 47% 11%;
     --border: 214 32% 91%;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
 
   .dark {
@@ -15,10 +16,29 @@
     --border: 217.2 32.6% 17.5%;
   }
 
+  html, body, #root {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Unificar la tipografía en todos los componentes y controles de formulario */
+  button, input, optgroup, select, textarea {
+    font-family: inherit;
+  }
+
+  /* Estandarizar la clase monoespaciada para usar Inter con cifras tabulares alineadas */
+  .font-mono, code, kbd, samp {
+    font-family: var(--font-sans) !important;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    letter-spacing: -0.01em;
+  }
+
   body {
-    background-color: #f4f7fc;
-    color: #0f172a;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: #f5f8fc;
+    color: #0b1739;
+    font-family: var(--font-sans);
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 
@@ -28,11 +48,11 @@
   }
 }
 
-/* Clean Professional SaaS Enterprise Cards & Panels */
+/* Clean Professional Enterprise Cards & Panels */
 .glass-panel {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+  border: 1px solid #e4eaf3;
+  box-shadow: 0 1px 3px 0 rgba(11, 23, 57, 0.04), 0 1px 2px -1px rgba(11, 23, 57, 0.02);
 }
 
 .dark .glass-panel {
@@ -41,10 +61,34 @@
   box-shadow: none;
 }
 
+.tender-card {
+  background: #ffffff;
+  border: 1px solid #e4eaf3;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px 0 rgba(11, 23, 57, 0.03);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tender-card:hover {
+  border-color: #c7d9fc;
+  box-shadow: 0 8px 24px -4px rgba(11, 95, 255, 0.09), 0 2px 6px -1px rgba(11, 23, 57, 0.03);
+  transform: translateY(-2px);
+}
+
+.dark .tender-card {
+  background: #111827;
+  border-color: #1f2937;
+}
+
+.dark .tender-card:hover {
+  border-color: #2563eb;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+}
+
 .glass-card {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  border: 1px solid #e4eaf3;
+  box-shadow: 0 1px 2px 0 rgba(11, 23, 57, 0.03);
   transition: all 0.15s ease-in-out;
 }
 
@@ -55,7 +99,7 @@
 
 .glass-card:hover {
   border-color: #93c5fd;
-  box-shadow: 0 4px 12px -2px rgba(37, 99, 235, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 4px 12px -2px rgba(11, 95, 255, 0.08), 0 2px 4px -1px rgba(11, 23, 57, 0.02);
 }
 
 .dark .glass-card:hover {

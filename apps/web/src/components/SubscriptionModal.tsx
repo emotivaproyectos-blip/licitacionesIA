@@ -17,7 +17,6 @@ import {
   PlanId, 
   storePlanId, 
   getMonthlyEvaluationsUsage, 
-  resetMonthlyEvaluations,
   PLAN_LIMITS_MAP 
 } from '../services/planRestrictions';
 
@@ -133,17 +132,6 @@ export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
               <span className="font-bold text-amber-900 dark:text-amber-200 text-[11px] font-mono">
                 {Math.min(usage.count, freeLimit)}/{freeLimit}
               </span>
-              <button
-                type="button"
-                onClick={() => {
-                  resetMonthlyEvaluations();
-                  onPlanUpgraded('free');
-                }}
-                className="px-2 py-1 rounded bg-amber-200/70 hover:bg-amber-300 text-amber-950 dark:bg-amber-900/60 dark:hover:bg-amber-800 dark:text-amber-200 text-[10px] font-bold transition-all"
-                title="Reiniciar contador a 0/5 para pruebas de desarrollo"
-              >
-                Reiniciar (Demo)
-              </button>
             </div>
           </div>
         )}

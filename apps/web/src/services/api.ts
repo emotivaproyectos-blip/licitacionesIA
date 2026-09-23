@@ -3,6 +3,12 @@
  * Filtra de manera estricta licitaciones públicas ACTIVAS y NO VENCIDAS (con fecha de cierre en el futuro).
  */
 
+import { 
+  formatProcurementTitle, 
+  formatProcurementDescription, 
+  formatEntityName 
+} from '../lib/procurementTextFormatter';
+
 export interface TenderDTO {
   id: string;
   secop_id: string;
@@ -23,12 +29,70 @@ export interface TenderDTO {
   unspsc_codes: string[];
   process_url?: string;
   source_platform: 'SECOP_I' | 'SECOP_II';
+  modalidad_de_contratacion?: string;
+  is_minima_cuantia?: boolean;
+  is_time_unspecified?: boolean;
+  estado_resumen?: string;
+  requires_secop_verification?: boolean;
+  verification_notes?: string;
   min_liquidity_required?: number;
   max_debt_allowed?: number;
   min_smmlv_required?: number;
   required_unspsc?: string[];
   compatibility_score?: number;
   verdict?: string;
+}
+
+export interface ProponentProfileData {
+  proponent_type: 'persona_natural' | 'persona_juridica';
+  name: string;
+  id_type: string;
+  id_number: string;
+  nit?: string;
+  dv?: string;
+  legal_representative?: string;
+  contact_email: string;
+  department: string;
+  city: string;
+  contact_person?: string;
+  phone?: string;
+  declared_activity: string;
+  offered_goods_services: string;
+  target_sectors: string[];
+  geographic_coverage: string[];
+  technical_capacities?: string;
+  keywords: string[];
+  fill_date?: string;
+  filled_by?: string;
+  has_veracity_confirmation: boolean;
+  has_privacy_acceptance: boolean;
+  ciiu_codes?: string[];
+  unspsc_codes?: string[];
+  portfolio_url?: string;
+  budget_range?: string;
+  experiences?: Array<Record<string, any>>;
+  has_prior_experience?: boolean;
+  equipment_and_staff?: string;
+  has_secop_account?: boolean;
+  business_condition?: string;
+  supports_declared?: string[];
+}
+
+export interface ProponentProfileExtractionResult {
+  success: boolean;
+  data?: ProponentProfileData;
+  completeness_score: number;
+  missing_fields: string[];
+  inconsistencies: string[];
+  provenance: {
+    filename?: string;
+    file_hash?: string;
+    extracted_at?: string;
+    template_version?: string;
+    extractor?: string;
+  };
+  is_valid_for_activation: boolean;
+  message: string;
 }
 
 export interface EvaluationResultDTO {
@@ -43,7 +107,7 @@ export interface EvaluationResultDTO {
   missing_documents: string[];
   confidence_level: number;
 }
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://emotiva-licitia-api.onrender.com';
+const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'https://emotiva-licitia-api.onrender.com';
 const SODA_SECOP2_URL = 'https://www.datos.gov.co/resource/p6dx-8zbt.json';
 const SODA_SECOP1_URL = 'https://www.datos.gov.co/resource/f789-7hwg.json';
 const SMMLV_2026 = 1400000.0;
@@ -185,14 +249,16 @@ export async function fetchLiveTenders(
   query?: string, 
   department?: string, 
   limit: number = 35,
-  platform: 'all' | 'SECOP_I' | 'SECOP_II' = 'all'
+  platform: 'all' | 'SECOP_I' | 'SECOP_II' = 'all',
+  modality?: 'all' | 'minima_cuantia'
 ): Promise<TenderDTO[]> {
   // 1. Intentar consultar el backend de FastAPI en Render para SECOP II
-  if (platform === 'SECOP_II') {
+  if (platform === 'SECOP_II' || modality === 'minima_cuantia') {
     try {
       const params = new URLSearchParams();
       params.set('limit', String(limit));
       params.set('platform', platform);
+      if (modality) params.set('modality', modality);
       if (query && query.trim()) params.set('q', query.trim());
       if (department && department.trim()) params.set('department', department.trim());
 
@@ -219,11 +285,11 @@ export async function fetchLiveTenders(
   const nowIso = new Date().toISOString().slice(0, 19) + '.000';
 
   // 2.1 Consulta a SECOP II (si platform es 'all' o 'SECOP_II')
-  if (platform === 'all' || platform === 'SECOP_II') {
+  if (platform === 'all' || platform === 'SECOP_II' || modality === 'minima_cuantia') {
     try {
       const sodaParams = new URLSearchParams();
       sodaParams.set('$limit', String(limit));
-      sodaParams.set('$order', 'fecha_de_publicacion_del DESC');
+      sodaParams.set('$order', 'fecha_de_publicacion_del DESC, id_del_proceso DESC');
       
       const whereClauses = [
         `fecha_de_recepcion_de > '${nowIso}'`,
@@ -231,6 +297,11 @@ export async function fetchLiveTenders(
         "estado_del_procedimiento in ('Publicado', 'En proceso', 'Presentación de ofertas', 'Abierto')",
         "fecha_de_publicacion_del is not null"
       ];
+
+      if (modality === 'minima_cuantia') {
+        whereClauses.push("modalidad_de_contratacion in ('Mínima cuantía', 'Minima cuantia', 'Mínima Cuantía')");
+      }
+
       if (department && department.trim()) whereClauses.push(`departamento_entidad='${department.trim()}'`);
       sodaParams.set('$where', whereClauses.join(' AND '));
       if (query && query.trim()) sodaParams.set('$q', query.trim());
@@ -341,8 +412,10 @@ function parseRawSodaSecop1(rawData: any[]): TenderDTO[] {
 
     const valSmmlv = Number((valCop / SMMLV_2026).toFixed(1));
 
-    const title = String(item.detalle_del_objeto_a_contratar || item.objeto_a_contratar || item.objeto_del_proceso || `Proceso SECOP I ${processNum}`).trim();
-    const entity = String(item.nombre_entidad || item.nombre_de_la_entidad || 'Entidad Pública').trim();
+    const rawTitle = String(item.detalle_del_objeto_a_contratar || item.objeto_a_contratar || item.objeto_del_proceso || `Proceso SECOP I ${processNum}`).trim();
+    const title = formatProcurementTitle(rawTitle);
+    const rawEntity = String(item.nombre_entidad || item.nombre_de_la_entidad || 'Entidad Pública').trim();
+    const entity = formatEntityName(rawEntity);
     const unspsc = cleanUnspscCode(item.id_clase || item.id_familia || item.codigo_principal_de_categoria || item.codigo_unspsc, title);
 
     const minLiquidity = valSmmlv > 1000 ? 2.0 : 1.5;
@@ -362,7 +435,7 @@ function parseRawSodaSecop1(rawData: any[]): TenderDTO[] {
       entity_name: entity,
       entity_nit: item.nit_de_la_entidad || item.nit_entidad,
       title,
-      description: item.detalle_del_objeto_a_contratar || item.objeto_a_contratar || title,
+      description: formatProcurementDescription(item.detalle_del_objeto_a_contratar || item.objeto_a_contratar || title),
       contract_type: item.modalidad_de_contratacion || item.tipo_de_proceso || item.tipo_de_contrato || 'Selección Abreviada SECOP I',
       budget_cop: valCop,
       budget_smmlv: valSmmlv,
@@ -422,8 +495,10 @@ function parseRawSodaSecop2(rawData: any[]): TenderDTO[] {
 
     const valSmmlv = Number((valCop / SMMLV_2026).toFixed(1));
 
-    const title = item.nombre_del_procedimiento || item.descripci_n_del_procedimiento || `Contratación pública ${processNum}`;
-    const entity = item.entidad || item.nombre_de_la_entidad || 'Entidad Pública';
+    const rawTitle = item.nombre_del_procedimiento || item.descripci_n_del_procedimiento || `Contratación pública ${processNum}`;
+    const title = formatProcurementTitle(rawTitle);
+    const rawEntity = item.entidad || item.nombre_de_la_entidad || 'Entidad Pública';
+    const entity = formatEntityName(rawEntity);
     const unspsc = cleanUnspscCode(item.codigo_principal_de_categoria, title);
 
     const processUrl = resolveSecopUrl('SECOP_II', item.urlproceso, processNum, secopId);
@@ -433,6 +508,11 @@ function parseRawSodaSecop2(rawData: any[]): TenderDTO[] {
     const minSmmlv = Number(Math.max(100, valSmmlv * 0.8).toFixed(1));
 
     const rawStatus = item.fase || item.estado_del_procedimiento || 'Presentación de ofertas';
+    const modContratacion = item.modalidad_de_contratacion || item.tipo_de_contrato || 'Contratación pública';
+    const isMc = /m[íi]nima/i.test(modContratacion);
+    const isTimeUnspecified = String(rawClose || '').includes('00:00:00');
+    const estadoResumen = item.estado_resumen || rawStatus;
+    const requiresVerification = isTimeUnspecified || estadoResumen === 'No Definido';
 
     parsed.push({
       id: secopId,
@@ -441,12 +521,12 @@ function parseRawSodaSecop2(rawData: any[]): TenderDTO[] {
       entity_name: entity,
       entity_nit: item.nit_entidad || item.nit_de_la_entidad,
       title,
-      description: item.descripci_n_del_procedimiento || item.descripcion_del_procedimiento || title,
-      contract_type: item.tipo_de_contrato || 'Prestación de servicios',
+      description: formatProcurementDescription(item.descripci_n_del_procedimiento || item.descripcion_del_procedimiento || title),
+      contract_type: modContratacion,
       budget_cop: valCop,
       budget_smmlv: valSmmlv,
       department: item.departamento_entidad || 'Colombia',
-      city: item.ciudad_entidad || 'Bogotá D.C.',
+      city: item.ciudad_entidad || 'Colombia',
       publication_date: pubDate,
       closing_date: rawClose,
       status: rawStatus,
@@ -454,6 +534,12 @@ function parseRawSodaSecop2(rawData: any[]): TenderDTO[] {
       unspsc_codes: [unspsc],
       process_url: processUrl,
       source_platform: 'SECOP_II',
+      modalidad_de_contratacion: modContratacion,
+      is_minima_cuantia: isMc,
+      is_time_unspecified: isTimeUnspecified,
+      estado_resumen: estadoResumen,
+      requires_secop_verification: requiresVerification,
+      verification_notes: isTimeUnspecified ? 'Hora de cierre pendiente de verificar en SECOP' : undefined,
       min_liquidity_required: minLiquidity,
       max_debt_allowed: maxDebt,
       min_smmlv_required: minSmmlv,
@@ -496,7 +582,10 @@ function normalizeAndFilterActive(list: any[]): TenderDTO[] {
       const maxDebt = t.max_debt_allowed || 0.50;
       const minSmmlv = t.min_smmlv_required || Number(Math.max(50, valSmmlv * 0.7).toFixed(1));
       
-      const title = t.title || t.description || 'Proceso de Contratación Pública';
+      const rawTitle = t.title || t.description || 'Proceso de Contratación Pública';
+      const title = formatProcurementTitle(rawTitle);
+      const entity = formatEntityName(t.entity_name || t.entidad || 'Entidad Oficial');
+      const desc = formatProcurementDescription(t.description || title);
       const unspscList = Array.isArray(t.unspsc_codes) && t.unspsc_codes.length > 0
         ? t.unspsc_codes.map((c: string) => cleanUnspscCode(c, title))
         : [cleanUnspscCode(undefined, title)];
@@ -508,6 +597,9 @@ function normalizeAndFilterActive(list: any[]): TenderDTO[] {
         ...t,
         id: uniqueId,
         secop_id: t.secop_id || uniqueId,
+        title,
+        entity_name: entity,
+        description: desc,
         closing_date: validClosing,
         source_platform: plat,
         process_url: resolveSecopUrl(plat, t.process_url, t.process_number, uniqueId, t.numero_de_constancia),
@@ -1013,5 +1105,83 @@ export async function auditTenderDocumentsApi(
     console.warn('Backend audit API fallback to local parser:', err);
   }
   return null;
+}
+
+// -----------------------------------------------------------------------------
+// SERVICIOS DE CLIENTE PARA FICHA DE PROPONENTE (MÍNIMA CUANTÍA / SIN RUP)
+// -----------------------------------------------------------------------------
+
+/**
+ * Descarga la plantilla oficial editable (.docx) de la 'Ficha del proponente para mínima cuantía — LicitIA'
+ */
+export async function downloadProponentTemplate(
+  proponentType: 'persona_natural' | 'persona_juridica',
+  currentData?: { name?: string; nit?: string; email?: string; department?: string; city?: string }
+): Promise<Blob> {
+  const params = new URLSearchParams();
+  params.set('proponent_type', proponentType);
+  if (currentData?.name) params.set('name', currentData.name);
+  if (currentData?.nit) params.set('nit', currentData.nit);
+  if (currentData?.email) params.set('email', currentData.email);
+  if (currentData?.department) params.set('department', currentData.department);
+  if (currentData?.city) params.set('city', currentData.city);
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/proponent-profile/template?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(`Error descargando plantilla: ${res.statusText}`);
+  }
+  return await res.blob();
+}
+
+/**
+ * Carga y extrae el contenido de la Ficha del proponente diligenciada (.docx o .pdf)
+ */
+export async function uploadAndExtractProponentFicha(file: File): Promise<ProponentProfileExtractionResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE_URL}/api/v1/proponent-profile/upload-extract`, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({ detail: 'Error en la extracción' }));
+    throw new Error(errData.detail || `Error al procesar archivo: ${res.status}`);
+  }
+
+  return await res.json();
+}
+
+/**
+ * Valida y confirma en el servidor el perfil de proponente para activar el acceso a Mínima Cuantía
+ */
+export async function confirmProponentProfile(profileData: ProponentProfileData): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/proponent-profile/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      profile_data: profileData,
+      confirmed_by_user: true
+    })
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({ detail: 'Error al autorizar perfil' }));
+    throw new Error(typeof errData.detail === 'string' ? errData.detail : (errData.detail?.message || 'Error al autorizar perfil'));
+  }
+
+  return await res.json();
+}
+
+/**
+ * Consulta procesos reales vigentes de Mínima Cuantía desde SECOP II
+ */
+export async function fetchMinimaCuantiaTenders(
+  query?: string,
+  department?: string,
+  limit: number = 35
+): Promise<TenderDTO[]> {
+  return await fetchLiveTenders(query, department, limit, 'SECOP_II', 'minima_cuantia');
 }
 

@@ -56,7 +56,8 @@ import {
   Radio,
   BarChart3,
   Zap,
-  Bell
+  Bell,
+  Bookmark
 } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { LandingPage } from './components/LandingPage';
@@ -73,6 +74,31 @@ import { ConsortiumSimulatorModal } from './components/ConsortiumSimulatorModal'
 import { MarketIntelligenceModal } from './components/MarketIntelligenceModal';
 import { CitationViewerModal, RequirementCitation } from './components/CitationViewerModal';
 import { EmailAlertsModal } from './components/EmailAlertsModal';
+import { SimilarTendersDeck } from './components/SimilarTendersDeck';
+import { DashboardSidebar } from './components/dashboard/DashboardSidebar';
+import { DashboardTopBar } from './components/dashboard/DashboardTopBar';
+import { DashboardPageHeader } from './components/dashboard/DashboardPageHeader';
+import { ModalityFiltersBar, ModalityOption } from './components/dashboard/ModalityFiltersBar';
+import { ResultsControlBar, SortOption, ViewMode } from './components/dashboard/ResultsControlBar';
+import { TenderGridCard } from './components/dashboard/TenderGridCard';
+import { TenderDetailDrawer } from './components/dashboard/TenderDetailDrawer';
+import { formatCOP } from './components/dashboard/tenderCategories';
+import capitolioHeroImg from './assets/capitolio_colombia.webp';
+import { 
+  getSavedTenders, 
+  getSavedTenderIds, 
+  toggleSaveTender, 
+  recordUserSearch, 
+  recordTenderView, 
+  getRecentSearches, 
+  getRecentViewedTenders, 
+  SAVED_TENDERS_CHANGE_EVENT 
+} from './services/savedTendersService';
+import { 
+  getPersonalizedRecommendations, 
+  findSimilarTenders, 
+  RecommendedTender 
+} from './services/recommendationService';
 import { loadCompanyVault, VaultDocument } from './services/companyVaultService';
 import { 
   PlanId, 
@@ -88,7 +114,7 @@ import {
   addApplicationRecord, 
   ApplicationRecord 
 } from './services/submissionsService';
-import { RequiredDossierDoc, AttachedFileInfo } from './services/dossierGenerator';
+import { RequiredDossierDoc, AttachedFileInfo, getTenderRequiredDocuments } from './services/dossierGenerator';
 import { supabase, signOutUser, getUserProfile, syncUserProfile } from './services/supabase';
 import { 
   TenderDTO, 
@@ -97,6 +123,10 @@ import {
   formatFriendlyDate, 
   resolveSecopUrl 
 } from './services/api';
+import { 
+  formatProcurementTitle, 
+  formatEntityName 
+} from './lib/procurementTextFormatter';
 
 interface CompanyProfile {
   name: string;
@@ -116,6 +146,14 @@ interface CompanyProfile {
   address?: string;
   legal_rep_name?: string;
   legal_rep_id?: string;
+  onboarding_route?: 'with_rup' | 'without_rup_minima_cuantia';
+  proponent_type?: 'natural' | 'juridica';
+  has_rup?: boolean;
+  veracity_confirmed?: boolean;
+  can_access_minima_cuantia?: boolean;
+  profile_completeness?: number;
+  declared_activity?: string;
+  tax_status?: string;
 }
 
 interface EvaluatedTender extends TenderDTO {
@@ -214,6 +252,11 @@ export default function App() {
   const [showCompanyModal, setShowCompanyModal] = useState<boolean>(false);
   const [filterTab, setFilterTab] = useState<'all' | 'high_match' | 'partial_match' | 'low_match'>('all');
   const [platformFilter, setPlatformFilter] = useState<'all' | 'SECOP_I' | 'SECOP_II'>('all');
+  const [modalityFilter, setModalityFilter] = useState<ModalityOption>('all');
+  const [activeSidebarNav, setActiveSidebarNav] = useState<string>('licitaciones');
+  const [sortOption, setSortOption] = useState<SortOption>('recent');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [isDetailDrawerOpen, setIsDetailDrawerOpen] = useState<boolean>(false);
   const [detailTab, setDetailTab] = useState<'matrix' | 'assistant' | 'checklist'>('matrix');
   
   // ESTADO DE BÚSQUEDA Y PROCESOS OFICIALES SECOP I & II (SOLO ACTIVAS)
@@ -223,6 +266,12 @@ export default function App() {
   const [isLoadingTenders, setIsLoadingTenders] = useState<boolean>(true);
   const [isSearchingLive, setIsSearchingLive] = useState<boolean>(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date>(new Date());
+
+  // ESTADO DE LICITACIONES GUARDADAS (FAVORITAS) Y RECOMENDACIONES
+  const [savedTendersList, setSavedTendersList] = useState<TenderDTO[]>(() => getSavedTenders());
+  const [savedTenderIds, setSavedTenderIds] = useState<Set<string>>(() => getSavedTenderIds());
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => getRecentSearches());
+  const [recentViews, setRecentViews] = useState<TenderDTO[]>(() => getRecentViewedTenders());
 
   // Almacenamiento persistente del perfil empresarial real
   const STORAGE_COMPANY_KEY = 'licitia_company_profile_v1';
@@ -321,6 +370,27 @@ export default function App() {
     const loadedVault = loadCompanyVault(company.nit, company.name);
     setVaultDocs(loadedVault);
   }, [company.nit, company.name]);
+
+  // Sincronizar licitaciones guardadas e intereses del usuario
+  useEffect(() => {
+    setSavedTendersList(getSavedTenders(company.nit));
+    setSavedTenderIds(getSavedTenderIds(company.nit));
+    setRecentSearches(getRecentSearches(company.nit));
+    setRecentViews(getRecentViewedTenders(company.nit));
+
+    const syncSaved = () => {
+      setSavedTendersList(getSavedTenders(company.nit));
+      setSavedTenderIds(getSavedTenderIds(company.nit));
+    };
+    window.addEventListener(SAVED_TENDERS_CHANGE_EVENT, syncSaved);
+    return () => window.removeEventListener(SAVED_TENDERS_CHANGE_EVENT, syncSaved);
+  }, [company.nit]);
+
+  const handleToggleSaveTender = useCallback((tender: TenderDTO) => {
+    toggleSaveTender(tender, company.nit);
+    setSavedTendersList(getSavedTenders(company.nit));
+    setSavedTenderIds(getSavedTenderIds(company.nit));
+  }, [company.nit]);
 
   // Escuchar sesión activa de Supabase (OAuth de Google, Magic Link o Login con contraseña)
   useEffect(() => {
@@ -468,13 +538,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
   const loadOfficialTenders = useCallback(async (
     query?: string, 
     isBackground: boolean = false, 
-    plat: 'all' | 'SECOP_I' | 'SECOP_II' = platformFilter
+    plat: 'all' | 'SECOP_I' | 'SECOP_II' = platformFilter,
+    modality: ModalityOption = modalityFilter
   ) => {
     if (!isBackground) setIsLoadingTenders(true);
     else setIsSearchingLive(true);
 
     try {
-      const data = await fetchLiveTenders(query, undefined, 35, plat);
+      const apiModality = modality === 'minima_cuantia' ? 'minima_cuantia' : 'all';
+      const data = await fetchLiveTenders(query, undefined, 35, plat, apiModality);
       setRawTenders(data);
       setLastSyncTime(new Date());
     } catch (err) {
@@ -483,31 +555,33 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       setIsLoadingTenders(false);
       setIsSearchingLive(false);
     }
-  }, [platformFilter]);
+  }, [platformFilter, modalityFilter]);
 
   // Carga inicial
   useEffect(() => {
-    loadOfficialTenders(searchTerm || undefined, false, platformFilter);
-  }, [platformFilter, loadOfficialTenders]);
+    loadOfficialTenders(searchTerm || undefined, false, platformFilter, modalityFilter);
+  }, [platformFilter, modalityFilter, loadOfficialTenders]);
 
   // Debounce para búsqueda en vivo contra la API oficial de SECOP I & II
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchTerm.trim().length >= 3) {
-        loadOfficialTenders(searchTerm.trim(), true, platformFilter);
+        recordUserSearch(searchTerm.trim(), company.nit);
+        setRecentSearches(getRecentSearches(company.nit));
+        loadOfficialTenders(searchTerm.trim(), true, platformFilter, modalityFilter);
       } else if (searchTerm.trim().length === 0 && activeSector === 'todos') {
-        loadOfficialTenders(undefined, true, platformFilter);
+        loadOfficialTenders(undefined, true, platformFilter, modalityFilter);
       }
     }, 600);
 
     return () => clearTimeout(timer);
-  }, [searchTerm, activeSector, platformFilter, loadOfficialTenders]);
+  }, [searchTerm, activeSector, platformFilter, modalityFilter, loadOfficialTenders, company.nit]);
 
   // Manejo de filtros rápidos por sector
   const handleSectorChange = (sector: string, searchKey?: string) => {
     setActiveSector(sector);
     setSearchTerm(searchKey || '');
-    loadOfficialTenders(searchKey, true, platformFilter);
+    loadOfficialTenders(searchKey, true, platformFilter, modalityFilter);
   };
 
   // HELPER PARA EVALUACIÓN JERÁRQUICA UNSPSC (CLASE, FAMILIA, SEGMENTO Y AFINIDAD SECTORIAL)
@@ -633,16 +707,31 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       ? company.total_liabilities / company.total_assets 
       : 0;
 
-    const evaluated: EvaluatedTender[] = rawTenders.map(t => {
+    // Combinar licitaciones cargadas en vivo con cualquier licitación guardada
+    const tendersToEvaluateMap = new Map<string, TenderDTO>();
+    rawTenders.forEach(t => {
+      const id = t.id || t.secop_id || t.process_number;
+      if (id) tendersToEvaluateMap.set(id, t);
+    });
+    savedTendersList.forEach(t => {
+      const id = t.id || t.secop_id || t.process_number;
+      if (id && !tendersToEvaluateMap.has(id)) tendersToEvaluateMap.set(id, t);
+    });
+    const tendersToEvaluate = Array.from(tendersToEvaluateMap.values());
+
+    const evaluated: EvaluatedTender[] = tendersToEvaluate.map(t => {
+      const isMinima = Boolean(
+        t.is_minima_cuantia || 
+        (t.contract_type && t.contract_type.toLowerCase().includes('mínima')) || 
+        (t.modalidad_de_contratacion && t.modalidad_de_contratacion.toLowerCase().includes('mínima'))
+      );
+      const isWithoutRupRoute = company.onboarding_route === 'without_rup_minima_cuantia';
+
       const minLiquidity = t.min_liquidity_required || (t.budget_smmlv > 1000 ? 2.0 : 1.5);
       const maxDebt = t.max_debt_allowed || 0.50;
       const minSmmlv = t.min_smmlv_required || Number(Math.max(50, t.budget_smmlv * 0.7).toFixed(1));
       const reqUnspsc = t.required_unspsc || t.unspsc_codes || ['80101500'];
 
-      const liquidityPasses = liquidityRatio >= minLiquidity;
-      const debtPasses = debtRatio <= maxDebt;
-      const experiencePasses = company.smmlv_experience >= minSmmlv;
-      
       const unspscEval = evaluateUnspscCompatibility(
         company.unspsc_codes,
         reqUnspsc,
@@ -655,58 +744,106 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       const risks: string[] = [];
       const missing_requirements: string[] = [];
 
-      if (liquidityPasses) {
-        reasons.push(`Índice de Liquidez (${liquidityRatio.toFixed(2)}) supera el mínimo exigido (${minLiquidity.toFixed(2)}).`);
-      } else {
-        score -= 35;
-        const gap = minLiquidity - liquidityRatio;
-        missing_requirements.push(`Índice de Liquidez: Tu liquidez actual es ${liquidityRatio.toFixed(2)}. Falta un margen de ${gap.toFixed(2)} para el mínimo de ${minLiquidity.toFixed(2)}.`);
-        risks.push(`Capacidad financiera de liquidez corriente inferior a la solicitada.`);
-      }
+      let liquidityPasses = true;
+      let debtPasses = true;
+      let experiencePasses = true;
 
-      if (debtPasses) {
-        reasons.push(`Índice de Endeudamiento (${(debtRatio * 100).toFixed(1)}%) cumple el límite máximo (${(maxDebt * 100).toFixed(0)}%).`);
-      } else {
-        score -= 25;
-        const gap = (debtRatio - maxDebt) * 100;
-        missing_requirements.push(`Nivel de Endeudamiento: Tu endeudamiento es ${(debtRatio * 100).toFixed(1)}%. Supera el tope de ${(maxDebt * 100).toFixed(0)}% por un margen de ${gap.toFixed(1)}%.`);
-        risks.push(`Endeudamiento total superior al porcentaje permitido por la entidad.`);
-      }
+      if (isMinima) {
+        // RÉGIMEN ESPECIAL DE MÍNIMA CUANTÍA (Ley 1150 de 2007 Art. 6 Parágrafo 1, Decreto 1082 de 2015)
+        reasons.push('Proceso de Mínima Cuantía: Exento legalmente de RUP (Ley 1150 de 2007, Art. 6 Parágrafo 1).');
+        reasons.push('Habilitación simplificada: Capacidad jurídica (Cédula / Cámara), cumplimiento de especificaciones y menor precio ofertado.');
+        if (company.declared_activity) {
+          reasons.push(`Actividad declarada del proponente: ${company.declared_activity}`);
+        }
 
-      if (experiencePasses) {
-        reasons.push(`Experiencia RUP acreditada (${company.smmlv_experience} SMMLV) cubre los ${minSmmlv} SMMLV exigidos.`);
-      } else {
-        score -= 30;
-        const smmlvGap = minSmmlv - company.smmlv_experience;
-        missing_requirements.push(`Experiencia RUP en SMMLV: Tienes ${company.smmlv_experience} SMMLV. Te faltan ${smmlvGap.toFixed(1)} SMMLV en contratos ejecutados para alcanzar los ${minSmmlv} SMMLV solicitados.`);
-        risks.push(`Falta de experiencia cuantificada en SMMLV para esta cuantía.`);
-      }
+        // Detección de inconsistencia si el pliego exige RUP en Mínima Cuantía
+        const tenderText = `${t.title} ${t.description}`.toLowerCase();
+        if (tenderText.includes('rup') || tenderText.includes('registro único de proponentes') || tenderText.includes('registro unico de proponentes')) {
+          risks.push('Advertencia de Pliego: El proceso está clasificado como Mínima Cuantía pero su texto refiere RUP. Conforme a la Ley 1150/2007 Art. 6 Parágrafo 1, el RUP no es legalmente exigible en esta modalidad. Se recomienda formular observación para que la entidad ajuste los términos.');
+        }
 
-      if (unspscEval.passes) {
-        reasons.push(unspscEval.reasonText);
-        score -= unspscEval.scoreDeduction;
+        // Afinidad técnica / UNSPSC
+        if (unspscEval.passes) {
+          reasons.push(unspscEval.reasonText);
+          score -= unspscEval.scoreDeduction;
+        } else {
+          // En mínima cuantía la falta de código exacto no descalifica si el objeto es afín a la actividad declarada
+          score -= 10;
+          missing_requirements.push(`Clasificación UNSPSC sugerida: [${unspscEval.missingCodes.join(', ')}]. No registras coincidencia exacta, pero puedes acreditar capacidad técnica directa en la propuesta.`);
+        }
       } else {
-        score -= 20;
-        missing_requirements.push(`Códigos UNSPSC en RUP: No registras la clasificación ${unspscEval.missingCodes.join(', ')} requerida para este objeto contractual.`);
-        risks.push(`Sin clasificación UNSPSC coincidente en el certificado RUP.`);
+        // PROCESOS ORDINARIOS QUE EXIGEN RUP (Licitación Pública, Selección Abreviada, etc.)
+        if (isWithoutRupRoute) {
+          score -= 40;
+          missing_requirements.push('Certificado RUP Vigente: Este proceso de cuantía ordinaria exige RUP obligatorio. Tu empresa está en ruta Mínima Cuantía (Sin RUP).');
+          risks.push('No cuentas con RUP registrado para participar individualmente en esta modalidad. Para postularte debes tramitar el RUP en Cámara de Comercio o participar en Consorcio/Unión Temporal con un socio que aporte RUP.');
+        }
+
+        liquidityPasses = liquidityRatio >= minLiquidity;
+        debtPasses = debtRatio <= maxDebt;
+        experiencePasses = company.smmlv_experience >= minSmmlv;
+
+        if (liquidityPasses) {
+          reasons.push(`Índice de Liquidez (${liquidityRatio.toFixed(2)}) supera el mínimo exigido (${minLiquidity.toFixed(2)}).`);
+        } else {
+          score -= 35;
+          const gap = minLiquidity - liquidityRatio;
+          missing_requirements.push(`Índice de Liquidez: Tu liquidez actual es ${liquidityRatio.toFixed(2)}. Falta un margen de ${gap.toFixed(2)} para el mínimo de ${minLiquidity.toFixed(2)}.`);
+          risks.push(`Capacidad financiera de liquidez corriente inferior a la solicitada.`);
+        }
+
+        if (debtPasses) {
+          reasons.push(`Índice de Endeudamiento (${(debtRatio * 100).toFixed(1)}%) cumple el límite máximo (${(maxDebt * 100).toFixed(0)}%).`);
+        } else {
+          score -= 25;
+          const gap = (debtRatio - maxDebt) * 100;
+          missing_requirements.push(`Nivel de Endeudamiento: Tu endeudamiento es ${(debtRatio * 100).toFixed(1)}%. Supera el tope de ${(maxDebt * 100).toFixed(0)}% por un margen de ${gap.toFixed(1)}%.`);
+          risks.push(`Endeudamiento total superior al porcentaje permitido por la entidad.`);
+        }
+
+        if (experiencePasses) {
+          reasons.push(`Experiencia RUP acreditada (${company.smmlv_experience} SMMLV) cubre los ${minSmmlv} SMMLV exigidos.`);
+        } else {
+          score -= 30;
+          const smmlvGap = minSmmlv - company.smmlv_experience;
+          missing_requirements.push(`Experiencia RUP en SMMLV: Tienes ${company.smmlv_experience} SMMLV. Te faltan ${smmlvGap.toFixed(1)} SMMLV en contratos ejecutados para alcanzar los ${minSmmlv} SMMLV solicitados.`);
+          risks.push(`Falta de experiencia cuantificada en SMMLV para esta cuantía.`);
+        }
+
+        if (unspscEval.passes) {
+          reasons.push(unspscEval.reasonText);
+          score -= unspscEval.scoreDeduction;
+        } else {
+          score -= 20;
+          missing_requirements.push(`Códigos UNSPSC en RUP: No registras la clasificación ${unspscEval.missingCodes.join(', ')} requerida para este objeto contractual.`);
+          risks.push(`Sin clasificación UNSPSC coincidente en el certificado RUP.`);
+        }
       }
 
       score = Math.max(0, Math.min(100, Math.round(score)));
 
       let verdict: 'RECOMMENDED' | 'RISKY' | 'NOT_RECOMMENDED' = 'RECOMMENDED';
-      let executive_summary = `La empresa ${company.name} cumple satisfactoriamente el 100% de los requisitos de habilitación para esta convocatoria abierta de ${t.source_platform.replace('_', ' ')}.`;
-      let strategy_recommendation = 'Puedes postularte de forma individual directamente ante la entidad.';
+      let executive_summary = isMinima
+        ? `Proceso de Mínima Cuantía en ${t.source_platform.replace('_', ' ')}. La empresa ${company.name} cuenta con perfil habilitado para presentar oferta sin requerir RUP.`
+        : `La empresa ${company.name} cumple satisfactoriamente el 100% de los requisitos de habilitación para esta convocatoria abierta de ${t.source_platform.replace('_', ' ')}.`;
+      let strategy_recommendation = isMinima
+        ? 'Presentar oferta económica de menor valor y adjuntar anexo de especificaciones técnicas directamente en SECOP.'
+        : 'Puedes postularte de forma individual directamente ante la entidad.';
 
       if (score >= 80) {
         verdict = 'RECOMMENDED';
       } else if (score >= 50) {
         verdict = 'RISKY';
-        executive_summary = `La empresa ${company.name} tiene un Match Parcial del ${score}%. Cumple los indicadores base pero presenta ${missing_requirements.length} observación(es) en RUP o liquidez.`;
-        strategy_recommendation = `Puedes postularte realizando una actualización de contratos en el RUP o sumando un socio menor en Unión Temporal.`;
+        executive_summary = `La empresa ${company.name} tiene un Match Parcial del ${score}%. Cumple los indicadores base pero presenta ${missing_requirements.length} observación(es) en requisitos o afinidad.`;
+        strategy_recommendation = isMinima 
+          ? `Verificar términos de la invitación y precisar la clasificación técnica de los bienes/servicios ofertados.`
+          : `Puedes postularte realizando una actualización de contratos en el RUP o sumando un socio menor en Unión Temporal.`;
       } else {
         verdict = 'NOT_RECOMMENDED';
         executive_summary = `La empresa ${company.name} presenta un Match Bajo (${score}%). Registra ${missing_requirements.length} brechas de habilitación frente al pliego.`;
-        strategy_recommendation = `Se recomienda conformar una Unión Temporal o Consorcio con un socio estratégico que aporte la experiencia técnica o financiera faltante.`;
+        strategy_recommendation = isWithoutRupRoute
+          ? `Este proceso exige RUP. Se recomienda participar en procesos de Mínima Cuantía o asociarse con un contratista que aporte RUP.`
+          : `Se recomienda conformar una Unión Temporal o Consorcio con un socio estratégico que aporte la experiencia técnica o financiera faltante.`;
       }
 
       // Generación de Citas y Fuentes Oficiales Verificables de Pliego
@@ -803,7 +940,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         risks,
         missing_requirements,
         strategy_recommendation,
-        required_documents: [
+        required_documents: isMinima ? [
+          'Carta de Presentación y Aceptación de Términos (Invitación Pública)',
+          company.proponent_type === 'natural' 
+            ? 'Copia de Cédula de Ciudadanía del Proponente' 
+            : 'Certificado de Existencia y Representación Legal (Cámara de Comercio)',
+          'RUT actualizado y Certificación de Pago de Seguridad Social / Parafiscales',
+          'Propuesta Económica (Formulario Oficial de Precios - Menor Valor)',
+          'Acreditación de Cumplimiento de Especificaciones Técnicas Requeridas'
+        ] : [
           'Carta de Presentación de la Oferta (Anexo N° 1)',
           'Certificación RUP Vigente con Estados Financieros',
           'Póliza de Seriedad de la Oferta expedida por Aseguradora',
@@ -844,18 +989,45 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       setSelectedTender(null);
     }
 
-  }, [company, rawTenders, evaluateUnspscCompatibility, currentPlanId]);
+  }, [company, rawTenders, savedTendersList, evaluateUnspscCompatibility, currentPlanId]);
 
-  const handleSelectTender = (tender: EvaluatedTender) => {
-    const check = canEvaluateTender(currentPlanId, tender.id);
+  const handleSelectTender = (tender: TenderDTO | EvaluatedTender) => {
+    const tenderId = tender.id || tender.secop_id || tender.process_number;
+    const check = canEvaluateTender(currentPlanId, tenderId);
     if (!check.allowed) {
       triggerPlanGate('evaluations_limit');
       return;
     }
-    recordTenderEvaluation(tender.id, currentPlanId);
+    recordTenderEvaluation(tenderId, currentPlanId);
     setEvalUsage(getMonthlyEvaluationsUsage());
-    setSelectedTender(tender);
+
+    const evaluatedMatch = evaluatedTenders.find(e => (e.id || e.secop_id || e.process_number) === tenderId);
+    if (evaluatedMatch) {
+      setSelectedTender(evaluatedMatch);
+    } else {
+      setSelectedTender(tender as EvaluatedTender);
+    }
+
+    recordTenderView(tender, company.nit);
+    setRecentViews(getRecentViewedTenders(company.nit));
   };
+
+  // Licitaciones personalizadas recomendadas para el usuario (Feed superior)
+  const personalizedRecommendations = useMemo(() => {
+    return getPersonalizedRecommendations(
+      rawTenders,
+      savedTendersList,
+      recentSearches,
+      recentViews,
+      6
+    );
+  }, [rawTenders, savedTendersList, recentSearches, recentViews]);
+
+  // Licitaciones similares a la convocatoria seleccionada (Inspector de detalle)
+  const similarTendersForSelected = useMemo(() => {
+    if (!selectedTender) return [];
+    return findSimilarTenders(selectedTender, rawTenders, 8);
+  }, [selectedTender, rawTenders]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -935,53 +1107,116 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     }
   }, [queryHistory, isQuerying]);
 
-  // Licitaciones pertenecientes a la plataforma seleccionada (para contadores de KPIs y pestañas)
+  // Licitaciones pertenecientes a la plataforma y modalidad seleccionada (para contadores de KPIs y pestañas)
+  // Licitaciones pertenecientes a la plataforma y modalidad seleccionada (para contadores de KPIs y pestañas)
   const platformTenders = useMemo(() => {
-    if (platformFilter === 'all') return evaluatedTenders;
-    return evaluatedTenders.filter(t => t.source_platform === platformFilter);
-  }, [evaluatedTenders, platformFilter]);
+    return evaluatedTenders.filter(t => {
+      if (modalityFilter === 'saved') {
+        return Boolean(
+          (t.id && savedTenderIds.has(String(t.id))) ||
+          (t.secop_id && savedTenderIds.has(String(t.secop_id))) ||
+          (t.process_number && savedTenderIds.has(String(t.process_number)))
+        );
+      }
+      if (platformFilter !== 'all' && t.source_platform !== platformFilter) return false;
+      if (modalityFilter === 'minima_cuantia') {
+        const isMin = Boolean(
+          t.is_minima_cuantia ||
+          (t.contract_type && t.contract_type.toLowerCase().includes('mínima')) ||
+          (t.modalidad_de_contratacion && t.modalidad_de_contratacion.toLowerCase().includes('mínima'))
+        );
+        if (!isMin) return false;
+      }
+      return true;
+    });
+  }, [evaluatedTenders, platformFilter, modalityFilter, savedTenderIds]);
 
-  // FILTRADO DINÁMICO REACCIONANDO A PESTAÑAS Y PLATAFORMA (MEMOIZADO Y ESTRICTO)
+  // FILTRADO DINÁMICO REACCIONANDO A PESTAÑAS, MODALIDAD, PLATAFORMA Y SECTOR
   const filteredTenders: EvaluatedTender[] = useMemo(() => {
     return evaluatedTenders.filter(t => {
-      // 1. Filtro estricto de plataforma
-      if (platformFilter !== 'all' && t.source_platform !== platformFilter) {
-        return false;
+      // 1. Filtro de licitaciones guardadas
+      if (modalityFilter === 'saved') {
+        const isSaved = Boolean(
+          (t.id && savedTenderIds.has(String(t.id))) ||
+          (t.secop_id && savedTenderIds.has(String(t.secop_id))) ||
+          (t.process_number && savedTenderIds.has(String(t.process_number)))
+        );
+        if (!isSaved) return false;
+      } else {
+        // 2. Filtro estricto de plataforma
+        if (platformFilter !== 'all' && t.source_platform !== platformFilter) {
+          return false;
+        }
+        // 3. Filtro de modalidad
+        const text = `${t.contract_type || ''} ${t.modalidad_de_contratacion || ''}`.toLowerCase();
+        if (modalityFilter === 'minima_cuantia') {
+          const isMin = Boolean(
+            t.is_minima_cuantia ||
+            text.includes('mínima') ||
+            text.includes('minima')
+          );
+          if (!isMin) return false;
+        } else if (modalityFilter === 'menor_cuantia') {
+          if (!text.includes('menor cuantía') && !text.includes('menor cuantia') && !text.includes('abreviada')) return false;
+        } else if (modalityFilter === 'licitacion_publica') {
+          if (!text.includes('licitación') && !text.includes('licitacion') && !text.includes('pública') && !text.includes('publica')) return false;
+        }
       }
-      // 2. Filtro de porcentaje de compatibilidad
+      // 4. Filtro de sector si está seleccionado
+      if (activeSector !== 'todos') {
+        const textSector = `${t.title || ''} ${(t as any).category || (t as any).contract_type || ''} ${t.description || ''}`.toLowerCase();
+        if (activeSector === 'tecnologia' && !textSector.includes('software') && !textSector.includes('tecnolog') && !textSector.includes('plataforma') && !textSector.includes('ti') && !textSector.includes('comput')) return false;
+        if (activeSector === 'consultoria' && !textSector.includes('consultor') && !textSector.includes('interventor') && !textSector.includes('asesor') && !textSector.includes('estudio')) return false;
+        if (activeSector === 'infraestructura' && !textSector.includes('obra') && !textSector.includes('construc') && !textSector.includes('vial') && !textSector.includes('tuberia') && !textSector.includes('acueducto')) return false;
+        if (activeSector === 'suministros' && !textSector.includes('suministro') && !textSector.includes('compra') && !textSector.includes('dotacion') && !textSector.includes('material')) return false;
+      }
+      // 5. Filtro de porcentaje de compatibilidad
       const score = typeof t.compatibility_score === 'number' ? t.compatibility_score : 0;
       if (filterTab === 'high_match') return score >= 80;
       if (filterTab === 'partial_match') return score >= 50 && score < 80;
       if (filterTab === 'low_match') return score < 50;
       return true;
     });
-  }, [evaluatedTenders, filterTab, platformFilter]);
+  }, [evaluatedTenders, filterTab, platformFilter, modalityFilter, activeSector, savedTenderIds]);
+
+  // Contadores reales para los botones de modalidad
+  const modalityCounts = useMemo(() => {
+    let minima = 0;
+    let menor = 0;
+    let licitacion = 0;
+    evaluatedTenders.forEach(t => {
+      const text = `${t.contract_type || ''} ${t.modalidad_de_contratacion || ''}`.toLowerCase();
+      if (t.is_minima_cuantia || text.includes('mínima') || text.includes('minima')) minima++;
+      else if (text.includes('menor cuantía') || text.includes('menor cuantia') || text.includes('abreviada')) menor++;
+      else if (text.includes('licitación') || text.includes('licitacion') || text.includes('pública') || text.includes('publica')) licitacion++;
+    });
+    return {
+      all: evaluatedTenders.length,
+      minimaCuantia: minima,
+      menorCuantia: menor,
+      licitacionPublica: licitacion
+    };
+  }, [evaluatedTenders]);
+
+  // Lista ordenada de licitaciones según el selector de ordenamiento
+  const sortedAndFilteredTenders = useMemo(() => {
+    const list = [...filteredTenders];
+    if (sortOption === 'recent') {
+      list.sort((a, b) => new Date(b.publication_date || 0).getTime() - new Date(a.publication_date || 0).getTime());
+    } else if (sortOption === 'match') {
+      list.sort((a, b) => (b.compatibility_score || 0) - (a.compatibility_score || 0));
+    } else if (sortOption === 'closing_asc') {
+      list.sort((a, b) => new Date(a.closing_date || 0).getTime() - new Date(b.closing_date || 0).getTime());
+    } else if (sortOption === 'budget_desc') {
+      list.sort((a, b) => (b.budget_cop || 0) - (a.budget_cop || 0));
+    } else if (sortOption === 'budget_asc') {
+      list.sort((a, b) => (a.budget_cop || 0) - (b.budget_cop || 0));
+    }
+    return list;
+  }, [filteredTenders, sortOption]);
 
   const handleFilterTabChange = (tab: 'all' | 'high_match' | 'partial_match' | 'low_match') => {
     setFilterTab(tab);
-    const matches = evaluatedTenders.filter(t => {
-      if (platformFilter !== 'all' && t.source_platform !== platformFilter) return false;
-      const score = typeof t.compatibility_score === 'number' ? t.compatibility_score : 0;
-      if (tab === 'high_match') return score >= 80;
-      if (tab === 'partial_match') return score >= 50 && score < 80;
-      if (tab === 'low_match') return score < 50;
-      return true;
-    });
-    if (matches.length > 0) {
-      if (!selectedTender || !matches.some(t => t.id === selectedTender.id)) {
-        const currentUsage = getMonthlyEvaluationsUsage();
-        const alreadyEval = matches.find(t => currentUsage.evaluatedTenderIds.includes(t.id));
-        if (alreadyEval) {
-          setSelectedTender(alreadyEval);
-        } else if (canEvaluateTender(currentPlanId, matches[0].id).allowed) {
-          handleSelectTender(matches[0]);
-        } else {
-          setSelectedTender(null);
-        }
-      }
-    } else {
-      setSelectedTender(null);
-    }
   };
 
   // Manejo de cambio de plataforma con filtrado y sincronización inmediata
@@ -991,28 +1226,20 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       return;
     }
     setPlatformFilter(plat);
-    const matches = evaluatedTenders.filter(t => {
-      if (plat !== 'all' && t.source_platform !== plat) return false;
-      const score = typeof t.compatibility_score === 'number' ? t.compatibility_score : 0;
-      if (filterTab === 'high_match') return score >= 80;
-      if (filterTab === 'partial_match') return score >= 50 && score < 80;
-      if (filterTab === 'low_match') return score < 50;
-      return true;
-    });
-    if (matches.length > 0) {
-      const currentUsage = getMonthlyEvaluationsUsage();
-      const alreadyEval = matches.find(t => currentUsage.evaluatedTenderIds.includes(t.id));
-      if (alreadyEval) {
-        setSelectedTender(alreadyEval);
-      } else if (canEvaluateTender(currentPlanId, matches[0].id).allowed) {
-        handleSelectTender(matches[0]);
-      } else {
-        setSelectedTender(null);
-      }
-    } else {
-      setSelectedTender(null);
+    loadOfficialTenders(searchTerm || undefined, false, plat, modalityFilter);
+  };
+
+  // Manejo de cambio de modalidad (Todas vs Mínima Cuantía vs Menor Cuantía vs Licitación Pública vs Guardadas)
+  const handleModalityChange = (mod: ModalityOption) => {
+    setModalityFilter(mod);
+    if (mod === 'saved') {
+      return;
     }
-    loadOfficialTenders(searchTerm || undefined, false, plat);
+    const targetPlat = mod === 'minima_cuantia' ? 'SECOP_II' : platformFilter;
+    if (mod === 'minima_cuantia' && platformFilter === 'SECOP_I') {
+      setPlatformFilter('SECOP_II');
+    }
+    loadOfficialTenders(searchTerm || undefined, false, targetPlat, mod);
   };
 
   const formLiquidity = formCompany.current_liabilities > 0 
@@ -1165,7 +1392,12 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           onComplete={(newCompanyData) => {
             setCompany(newCompanyData);
             setFormCompany(newCompanyData);
+            storeCompanyProfile(newCompanyData);
             setIsOnboardingOpen(false);
+            if (newCompanyData.onboarding_route === 'without_rup_minima_cuantia') {
+              setModalityFilter('minima_cuantia');
+              loadOfficialTenders(undefined, false, 'SECOP_II', 'minima_cuantia');
+            }
           }}
         />
 
@@ -1182,1551 +1414,318 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
   }
 
   return (
-    <div className="min-h-screen flex bg-[#f4f7fc] dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors duration-200">
+    <div className="min-h-screen flex bg-[#F5F8FC] dark:bg-[#0B1120] text-[#0B1739] dark:text-slate-100 font-sans antialiased transition-colors duration-200">
       
-      {/* 1. BARRA LATERAL DE NAVEGACIÓN SAAS */}
-      <aside className="w-16 flex-shrink-0 bg-white dark:bg-[#111827] border-r border-slate-200/80 dark:border-slate-800/90 flex flex-col items-center justify-between py-4 sticky top-0 h-screen z-50 select-none shadow-[1px_0_4px_rgba(0,0,0,0.02)]">
+      {/* 1. BARRA LATERAL BLANCA CON NAVEGACIÓN COMPLETA (230px) */}
+      <DashboardSidebar
+        activeNav={activeSidebarNav}
+        onNavigate={(key) => {
+          if (key === 'landing') setCurrentView('landing');
+          else if (key === 'favoritos') {
+            setActiveSidebarNav('favoritos');
+            handleModalityChange('saved');
+          } else {
+            setActiveSidebarNav(key);
+            if (key === 'licitaciones' && modalityFilter === 'saved') {
+              handleModalityChange('all');
+            }
+          }
+        }}
+        applicationsCount={applicationsHistory.length}
+        savedCount={savedTendersList.length}
+        vaultCount={vaultDocs.length}
+        companyName={company.name}
+        planName={planLimits.name}
+        onOpenCompanyModal={() => {
+          setFormCompany(company);
+          setShowCompanyModal(true);
+        }}
+        onOpenSubModal={() => setIsSubModalOpen(true)}
+        onOpenHistoryModal={() => setIsHistoryModalOpen(true)}
+        onOpenVaultModal={() => setIsCompanyVaultOpen(true)}
+        onOpenMarketIntelligence={() => setIsMarketIntelligenceOpen(true)}
+        onOpenEmailAlerts={() => setIsEmailAlertsOpen(true)}
+        onOpenConsortiumSimulator={() => {
+          if (selectedTender) {
+            setIsConsortiumModalOpen(true);
+          } else if (evaluatedTenders.length > 0) {
+            setSelectedTender(evaluatedTenders[0]);
+            setIsConsortiumModalOpen(true);
+          } else {
+            triggerPlanGate('advanced_consortium');
+          }
+        }}
+        isDarkMode={isDarkMode}
+        onToggleTheme={toggleTheme}
+      />
+
+      {/* 2. CONTENIDO PRINCIPAL */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
         
-        {/* LOGO DE LA APLICACIÓN */}
-        <div className="flex flex-col items-center gap-6">
-          <div 
-            onClick={() => setCurrentView('landing')}
-            title="Volver a la Página Principal (Landing)" 
-            className="w-10 h-10 rounded-xl bg-blue-600 dark:bg-blue-500 flex items-center justify-center text-white font-black text-base shadow-md shadow-blue-500/25 tracking-wider cursor-pointer hover:scale-105 transition-transform"
-          >
-            EL
+        {/* HERO PANORÁMICO EDGE-TO-EDGE QUE CUBRE EL NAVBAR Y LLEGA HASTA LAS ORILLAS */}
+        <div className="relative w-full border-b border-[#E4EAF3] dark:border-slate-800/80 bg-gradient-to-r from-[#F5F8FC] via-[#EDF5FF] to-[#E8F3EE] dark:from-[#0B1120] dark:via-[#0e172e] dark:to-[#0B1728] overflow-hidden flex-shrink-0">
+          
+          {/* ILUSTRACIÓN PANORÁMICA DEL CAPITOLIO Y PAISAJE ADJUNTO POR EL USUARIO */}
+          <div className="absolute right-0 top-0 bottom-0 pointer-events-none select-none flex items-end justify-end overflow-hidden z-10 w-full h-full">
+            {/* Tag Flotante institucional al costado del Capitolio (como en la referencia) */}
+            <div className="hidden xl:flex flex-col bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/80 dark:border-slate-700/60 shadow-xs z-30 select-none absolute right-[280px] lg:right-[300px] xl:right-[320px] top-[92px]">
+              <span className="text-xs sm:text-[13px] font-bold text-emerald-800 dark:text-emerald-400 leading-tight">
+                Contratación pública
+              </span>
+              <span className="text-[11px] sm:text-xs text-[#64748B] dark:text-slate-300 font-medium">
+                más simple, más inteligente.
+              </span>
+            </div>
+
+            <img
+              src={capitolioHeroImg}
+              alt="Capitolio Nacional de Colombia"
+              className="h-full w-auto max-w-none object-contain object-right-bottom transition-opacity duration-300 opacity-100 dark:opacity-85"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.src.endsWith('/capitolio_colombia.webp')) {
+                  target.src = '/capitolio_colombia.webp';
+                }
+              }}
+            />
+            <div className="absolute inset-0 dark:bg-slate-950/25 mix-blend-multiply pointer-events-none" />
           </div>
 
-          {/* MENÚ DE ICONOS PRINCIPALES */}
-          <nav className="flex flex-col items-center gap-2">
+          {/* CONTENIDO INTERNO: TOPBAR + HEADER + FILTROS DE MODALIDAD */}
+          <div className="relative z-20 flex flex-col">
             
-            {/* 0. Volver a Landing Page */}
-            <button
-              onClick={() => setCurrentView('landing')}
-              title="Ver Página de Inicio / Landing"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 dark:text-slate-400 dark:hover:text-blue-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <Globe2 className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Página Principal (Landing)
-              </span>
-            </button>
-
-            {/* 1. Convocatorias / Repositorio Principal */}
-            <button
-              onClick={() => {}}
-              title="Convocatorias y Licitaciones Abiertas"
-              className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 font-bold transition-all relative group"
-            >
-              <LayoutGrid className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Licitaciones Activas
-              </span>
-            </button>
-
-            {/* 2. Mis Postulaciones (con badge) */}
-            <button
-              onClick={() => setIsHistoryModalOpen(true)}
-              title="Mis Postulaciones Radicadas"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 dark:text-slate-400 dark:hover:text-blue-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <Inbox className="w-5 h-5" />
-              {applicationsHistory.length > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-blue-600 text-white rounded-full text-[10px] font-bold flex items-center justify-center px-1 shadow-sm">
-                  {applicationsHistory.length}
-                </span>
-              )}
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Mis Postulaciones ({applicationsHistory.length})
-              </span>
-            </button>
-
-            {/* 3. Asistente RUP (Cargar PDF) */}
-            <button
-              onClick={() => setIsOnboardingOpen(true)}
-              title="Asistente RUP Inteligente (Cargar PDF)"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50/80 dark:text-slate-400 dark:hover:text-emerald-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <UploadCloud className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Cargar Certificado RUP (PDF)
-              </span>
-            </button>
-
-            {/* 4. Perfil de mi Empresa (RUP) */}
-            <button
-              onClick={() => {
+            {/* 1. BARRA SUPERIOR INTEGRADA (FLOTANTE SOBRE EL FONDO) */}
+            <DashboardTopBar
+              searchTerm={searchTerm}
+              onSearchChange={(val) => setSearchTerm(val)}
+              onSearchSubmit={() => loadOfficialTenders(searchTerm || undefined, false, platformFilter, modalityFilter)}
+              onSearchClear={() => {
+                setSearchTerm('');
+                loadOfficialTenders(undefined, true, platformFilter, modalityFilter);
+              }}
+              isSearchingLive={isSearchingLive}
+              companyName={company.name}
+              onOpenNotifications={() => setIsEmailAlertsOpen(true)}
+              onOpenProfile={() => {
                 setFormCompany(company);
                 setShowCompanyModal(true);
               }}
-              title="Perfil de mi Empresa (RUP & Finanzas)"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 dark:text-slate-400 dark:hover:text-blue-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <Building2 className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Perfil de Empresa (RUP)
-              </span>
-            </button>
+              alertsCount={evaluatedTenders.filter(t => t.compatibility_score >= 80).length}
+              transparent={true}
+            />
 
-            {/* 5. Planes y Monetización SaaS */}
-            <button
-              onClick={() => setIsSubModalOpen(true)}
-              title="Planes SaaS & Facturación Wompi"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-amber-600 hover:bg-amber-50/80 dark:text-slate-400 dark:hover:text-amber-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <CreditCard className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Plan {currentPlanId.toUpperCase()} (Wompi)
-              </span>
-            </button>
-
-            {/* 6. Términos y Condiciones Legales */}
-            <button
-              onClick={handleOpenTerms}
-              title="Términos y Condiciones de Uso"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-blue-600 hover:bg-blue-50/80 dark:text-slate-400 dark:hover:text-blue-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <Scale className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Términos y Condiciones
-              </span>
-            </button>
-
-            {/* 7. Política de Privacidad */}
-            <button
-              onClick={handleOpenPrivacy}
-              title="Política de Privacidad y Habeas Data"
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50/80 dark:text-slate-400 dark:hover:text-emerald-300 dark:hover:bg-slate-800 transition-all relative group"
-            >
-              <ShieldCheck className="w-5 h-5" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Política de Privacidad
-              </span>
-            </button>
-
-          </nav>
-        </div>
-
-        {/* CONTROLES INFERIORES: TEMA Y USUARIO */}
-        <div className="flex flex-col items-center gap-3">
-          
-          {/* Selector Claro / Oscuro */}
-          <button
-            onClick={toggleTheme}
-            title={isDarkMode ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro'}
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 transition-all"
-          >
-            {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
-          </button>
-
-          {/* Botón de Autenticación / Usuario */}
-          {userSession ? (
-            <button
-              onClick={handleLogout}
-              title={`Cerrar sesión (${userSession.email})`}
-              className="w-10 h-10 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all relative group"
-            >
-              <LogOut className="w-4 h-4" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Salir ({userSession.email})
-              </span>
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                setAuthInitialTab('login');
-                setIsAuthModalOpen(true);
-              }}
-              title="Iniciar Sesión / Registrarse"
-              className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all relative group"
-            >
-              <User className="w-4 h-4" />
-              <span className="absolute left-14 bg-slate-900 text-white text-[11px] font-medium px-2.5 py-1 rounded-md opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-lg z-50">
-                Iniciar Sesión
-              </span>
-            </button>
-          )}
-
-        </div>
-      </aside>
-
-      {/* CONTENIDO PRINCIPAL */}
-      <div className="flex-1 flex flex-col min-w-0">
-        
-        {/* HEADER SUPERIOR MODERNO SAAS */}
-        <header className="h-16 bg-white dark:bg-[#111827] border-b border-slate-200/80 dark:border-slate-800/90 px-6 flex items-center justify-between sticky top-0 z-40 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
-          <div className="flex items-center gap-3.5">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white">Emotiva LicitIA</span>
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>
-                  SECOP I & II OFICIAL • LICITACIONES VIGENTES
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Plataforma Inteligente de Evaluación RUP y Postulaciones Estatales</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* BADGE DE PLAN SAAS & EVALUACIONES */}
-            <div 
-              onClick={() => setIsSubModalOpen(true)}
-              className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border cursor-pointer transition-all hover:scale-[1.02] shadow-xs bg-slate-50 hover:bg-blue-50/60 dark:bg-slate-800/80 dark:hover:bg-slate-800 border-slate-200/80 dark:border-slate-700"
-              title="Haz clic para ver o gestionar tu suscripción y límites"
-            >
-              <div className={`p-1 rounded-lg ${
-                currentPlanId === 'enterprise' 
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' 
-                  : currentPlanId === 'pyme'
-                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-              }`}>
-                {currentPlanId === 'enterprise' ? <Sparkles className="w-3.5 h-3.5" /> : currentPlanId === 'pyme' ? <Zap className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-              </div>
-              <div className="text-left text-xs">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-bold text-slate-900 dark:text-white text-[11px]">{planLimits.name}</span>
-                  {currentPlanId === 'free' && (
-                    <span className="px-1.5 py-0.2 bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 text-[10px] font-bold rounded">
-                      {Math.min(evalUsage.count, 5)}/5 eval.
-                    </span>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-400">
-                  {currentPlanId === 'free' ? 'Buscador SECOP II básico' : currentPlanId === 'pyme' ? 'Evaluaciones Ilimitadas' : 'Consorcios & 24/7'}
-                </p>
-              </div>
+            {/* 2. TÍTULO, SUBTÍTULO Y TAG INSTITUCIONAL */}
+            <div className="px-6 lg:px-8">
+              <DashboardPageHeader />
             </div>
 
-            {/* BOTÓN INTELIGENCIA DE MERCADO & COMPETENCIA */}
-            <button
-              onClick={() => setIsMarketIntelligenceOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 hover:bg-purple-100 text-xs font-semibold shadow-xs transition-colors"
-              title="Radiografía de Competencia, Contratos Ganados y Radar PAA de Compras Tempranas"
-            >
-              <BarChart3 className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
-              <span>Inteligencia de Mercado</span>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200 font-bold">
-                SECOP II
-              </span>
-            </button>
-
-            {/* BOTÓN ALERTAS DIARIAS 24/7 */}
-            <button
-              onClick={() => setIsEmailAlertsOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-100 text-xs font-semibold shadow-xs transition-colors"
-              title="Vigilancia Diaria Automática 24/7 de Procesos SECOP II al Correo"
-            >
-              <Bell className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-              <span>Alertas 24/7</span>
-            </button>
-
-            {/* BOTÓN RÁPIDO BÓVEDA DOCUMENTAL EMPRESARIAL */}
-            <button
-              onClick={() => setIsCompanyVaultOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 text-xs font-semibold shadow-xs transition-colors"
-              title="Repositorio Documental Permanente de la Empresa (Jurídicos, Financieros, Experiencia, Personal, Certificaciones)"
-            >
-              <Folder className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Bóveda Documental ({vaultDocs.length})</span>
-            </button>
-
-            {/* BOTÓN RÁPIDO MIS POSTULACIONES */}
-            <button
-              onClick={() => setIsHistoryModalOpen(true)}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-100 text-xs font-semibold shadow-xs transition-colors"
-            >
-              <Inbox className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Mis Postulaciones ({applicationsHistory.length})</span>
-            </button>
-
-            {/* BOTÓN ASISTENTE RUP */}
-            <button
-              onClick={() => setIsOnboardingOpen(true)}
-              className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 text-xs font-semibold shadow-xs transition-colors"
-            >
-              <UploadCloud className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>Cargar RUP (PDF)</span>
-            </button>
-
-            <div className="h-4 w-px bg-slate-200 dark:border-slate-800 hidden sm:block" />
-
-            {/* PERFIL EMPRESARIAL ACTIVO */}
-            <div 
-              onClick={() => {
-                setFormCompany(company);
-                setShowCompanyModal(true);
-              }}
-              title="Haz clic para editar el perfil RUP y los estados financieros"
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-blue-50/60 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700 cursor-pointer transition-all group"
-            >
-              <div className="h-7 w-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                {company.name.slice(0, 2).toUpperCase()}
-              </div>
-              <div className="text-xs text-left hidden sm:block">
-                <p className="font-semibold text-slate-900 dark:text-slate-200 truncate max-w-[130px] group-hover:text-blue-600 transition-colors">{company.name}</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">NIT {company.nit}</p>
-              </div>
-              <Edit3 className="w-3 h-3 text-slate-400 group-hover:text-blue-600 transition-colors ml-0.5" />
-            </div>
-          </div>
-        </header>
-
-        {/* WORKSPACE PRINCIPAL DE 2 COLUMNAS (REPOSITORIO / INSPECTOR) */}
-        <main className="flex-1 p-5 grid grid-cols-1 lg:grid-cols-12 gap-5 max-w-[1720px] mx-auto w-full">
-          
-          {/* COLUMNA IZQUIERDA: REPOSITORIO DE LICITACIONES ACTIVAS (5 Cols) */}
-          <section className="lg:col-span-5 flex flex-col gap-3.5">
-            
-            {/* PANEL DE BÚSQUEDA Y FILTRADO AVANZADO */}
-            <div className="bg-white dark:bg-[#111827] p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-[0_1px_3px_rgba(0,0,0,0.03)] space-y-3">
-              
-              {/* SELECTOR SEGMENTADO DE PLATAFORMA (TODAS / SECOP II / SECOP I) */}
-              <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-900 rounded-xl text-xs font-semibold">
-                <button
-                  onClick={() => handlePlatformChange('all')}
-                  className={`flex-1 py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                    platformFilter === 'all'
-                      ? 'bg-blue-600 text-white shadow-sm font-bold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <Database className="w-3.5 h-3.5" />
-                  <span>Todas (SECOP I & II)</span>
-                  {currentPlanId === 'free' && <Lock className="w-3 h-3 text-amber-500 ml-0.5" />}
-                </button>
-                <button
-                  onClick={() => handlePlatformChange('SECOP_II')}
-                  className={`flex-1 py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                    platformFilter === 'SECOP_II'
-                      ? 'bg-blue-600 text-white shadow-sm font-bold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-blue-200"></span>
-                  <span>Solo SECOP II</span>
-                </button>
-                <button
-                  onClick={() => handlePlatformChange('SECOP_I')}
-                  className={`flex-1 py-1.5 px-2 rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                    platformFilter === 'SECOP_I'
-                      ? 'bg-amber-600 text-white shadow-sm font-bold'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  <span className="w-2 h-2 rounded-full bg-amber-200"></span>
-                  <span>Solo SECOP I</span>
-                  {currentPlanId === 'free' && <Lock className="w-3 h-3 text-amber-500 ml-0.5" />}
-                </button>
-              </div>
-
-              {/* BUSCADOR REACTIVO CON ICONO Y LIMPIADOR */}
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  {isSearchingLive ? (
-                    <Loader2 className="w-4 h-4 absolute left-3 top-2.5 text-blue-600 animate-spin" />
-                  ) : (
-                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                  )}
-                  <input 
-                    type="text" 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por objeto, código o entidad (ej: software, obra, consultoría)..." 
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 transition-all"
-                  />
-                  {searchTerm && (
-                    <button 
-                      onClick={() => {
-                        setSearchTerm('');
-                        loadOfficialTenders(undefined, true, platformFilter);
-                      }}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                <button 
-                  onClick={() => loadOfficialTenders(searchTerm || undefined, false, platformFilter)}
-                  title="Actualizar y consultar convocatorias activas"
-                  className="p-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingTenders ? 'animate-spin text-blue-600' : ''}`} />
-                </button>
-              </div>
-
-              {/* CHIPS RÁPIDOS DE SECTOR */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[11px] no-scrollbar">
-                <button
-                  onClick={() => handleSectorChange('todos')}
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors font-semibold ${
-                    activeSector === 'todos'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  Todos
-                </button>
-                <button
-                  onClick={() => handleSectorChange('tecnologia', 'software')}
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
-                    activeSector === 'tecnologia'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  💻 Software & TI
-                </button>
-                <button
-                  onClick={() => handleSectorChange('consultoria', 'consultoria')}
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
-                    activeSector === 'consultoria'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  📊 Consultoría
-                </button>
-                <button
-                  onClick={() => handleSectorChange('infraestructura', 'obra')}
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
-                    activeSector === 'infraestructura'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  🏗️ Obras
-                </button>
-                <button
-                  onClick={() => handleSectorChange('suministros', 'suministro')}
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors font-medium ${
-                    activeSector === 'suministros'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  📦 Suministros
-                </button>
-              </div>
-
-            </div>
-
-            {/* RESUMEN EJECUTIVO DE KPIS & METRICAS (CLICKEABLES PARA FILTRAR) */}
-            <div className="grid grid-cols-3 gap-2.5">
-              <div 
-                onClick={() => handleFilterTabChange('high_match')}
-                className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                  filterTab === 'high_match'
-                    ? 'bg-emerald-50/90 dark:bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/20 shadow-xs'
-                    : 'bg-white dark:bg-[#111827] border-slate-200/80 dark:border-slate-800 hover:border-emerald-300'
-                }`}
-              >
-                <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase">Match Alto</p>
-                  <p className="text-base font-black text-emerald-600 dark:text-emerald-400">
-                    {platformTenders.filter(t => t.compatibility_score >= 80).length}
-                  </p>
-                </div>
-                <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400 flex items-center justify-center text-xs font-bold">
-                  &ge;80%
-                </div>
-              </div>
-
-              <div 
-                onClick={() => handleFilterTabChange('partial_match')}
-                className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                  filterTab === 'partial_match'
-                    ? 'bg-amber-50/90 dark:bg-amber-950/60 border-amber-500 ring-2 ring-amber-500/20 shadow-xs'
-                    : 'bg-white dark:bg-[#111827] border-slate-200/80 dark:border-slate-800 hover:border-amber-300'
-                }`}
-              >
-                <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase">Match Parcial</p>
-                  <p className="text-base font-black text-amber-600 dark:text-amber-400">
-                    {platformTenders.filter(t => t.compatibility_score >= 50 && t.compatibility_score < 80).length}
-                  </p>
-                </div>
-                <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400 flex items-center justify-center text-xs font-bold">
-                  50-79%
-                </div>
-              </div>
-
-              <div 
-                onClick={() => handleFilterTabChange('low_match')}
-                className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                  filterTab === 'low_match'
-                    ? 'bg-rose-50/90 dark:bg-rose-950/60 border-rose-500 ring-2 ring-rose-500/20 shadow-xs'
-                    : 'bg-white dark:bg-[#111827] border-slate-200/80 dark:border-slate-800 hover:border-rose-300'
-                }`}
-              >
-                <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase">Match Bajo</p>
-                  <p className="text-base font-black text-rose-600 dark:text-rose-400">
-                    {platformTenders.filter(t => t.compatibility_score < 50).length}
-                  </p>
-                </div>
-                <div className="w-7 h-7 rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400 flex items-center justify-center text-xs font-bold">
-                  &lt;50%
-                </div>
-              </div>
-            </div>
-
-            {/* PESTAÑAS DE NAVEGACIÓN Y FILTRO POR RANGO */}
-            <div className="flex items-center gap-1 bg-white dark:bg-[#111827] p-1 rounded-xl border border-slate-200/80 dark:border-slate-800 text-[11px] font-semibold shadow-xs">
-              <button
-                onClick={() => handleFilterTabChange('all')}
-                className={`flex-1 py-1.5 px-2 rounded-lg transition-all text-center ${
-                  filterTab === 'all'
-                    ? 'bg-blue-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                Todas ({platformTenders.length})
-              </button>
-              <button
-                onClick={() => handleFilterTabChange('high_match')}
-                className={`flex-1 py-1.5 px-2 rounded-lg transition-all text-center ${
-                  filterTab === 'high_match'
-                    ? 'bg-emerald-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400'
-                }`}
-              >
-                &ge;80% ({platformTenders.filter(t => t.compatibility_score >= 80).length})
-              </button>
-              <button
-                onClick={() => handleFilterTabChange('partial_match')}
-                className={`flex-1 py-1.5 px-2 rounded-lg transition-all text-center ${
-                  filterTab === 'partial_match'
-                    ? 'bg-amber-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-amber-700 dark:hover:text-amber-400'
-                }`}
-              >
-                50-79% ({platformTenders.filter(t => t.compatibility_score >= 50 && t.compatibility_score < 80).length})
-              </button>
-              <button
-                onClick={() => handleFilterTabChange('low_match')}
-                className={`flex-1 py-1.5 px-2 rounded-lg transition-all text-center ${
-                  filterTab === 'low_match'
-                    ? 'bg-rose-600 text-white shadow-xs font-bold'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-rose-700 dark:hover:text-rose-400'
-                }`}
-              >
-                &lt;50% ({platformTenders.filter(t => t.compatibility_score < 50).length})
-              </button>
-            </div>
-
-            {/* LISTA DE PROCESOS ESTILO SAAS REPOSITORY */}
-            <div className="space-y-2.5 overflow-y-auto max-h-[calc(100vh-370px)] pr-1">
-              {isLoadingTenders ? (
-                <div className="p-12 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-center space-y-3 bg-white dark:bg-[#111827]">
-                  <Loader2 className="w-8 h-8 mx-auto text-blue-600 animate-spin" />
-                  <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Consultando Convocatorias Activas en SECOP I & II...</p>
-                  <p className="text-[11px] text-slate-400">Filtrando exclusivamente procesos en presentación de ofertas</p>
-                </div>
-              ) : filteredTenders.length > 0 ? (
-                filteredTenders.map((tender, index) => {
-                  const isSelected = selectedTender?.id === tender.id;
-                  const isSubmitted = !!submittedTenders[tender.id];
-                  const isEvaluated = evalUsage.evaluatedTenderIds.includes(tender.id);
-                  const isLimitReached = currentPlanId === 'free' && evalUsage.count >= 5 && !isEvaluated;
-                  
-                  let badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800';
-                  let badgeText = `${tender.compatibility_score}% Match Alto`;
-
-                  if (tender.compatibility_score >= 50 && tender.compatibility_score < 80) {
-                    badgeBg = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800';
-                    badgeText = `${tender.compatibility_score}% Match Parcial`;
-                  } else if (tender.compatibility_score < 50) {
-                    badgeBg = 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800';
-                    badgeText = `${tender.compatibility_score}% Match Bajo`;
+            {/* 3. FILTROS POR MODALIDAD EN LA BASE DEL HERO */}
+            <div className="px-6 lg:px-8 pb-5 pt-1">
+              <ModalityFiltersBar
+                selectedModality={modalityFilter}
+                onSelectModality={(m) => {
+                  if (m === 'saved') {
+                    setActiveSidebarNav('favoritos');
+                  } else {
+                    setActiveSidebarNav('licitaciones');
                   }
+                  handleModalityChange(m);
+                }}
+                counts={modalityCounts}
+                platformFilter={platformFilter}
+                onPlatformChange={handlePlatformChange}
+                matchFilter={filterTab}
+                onMatchFilterChange={handleFilterTabChange}
+                activeSector={activeSector}
+                onSectorChange={(s) => handleSectorChange(s, s === 'todos' ? undefined : s)}
+                onResetFilters={() => {
+                  setFilterTab('all');
+                  setPlatformFilter('all');
+                  setActiveSector('todos');
+                  setModalityFilter('all');
+                  loadOfficialTenders(undefined, false, 'all', 'all');
+                }}
+                hasActiveAdvancedFilters={platformFilter !== 'all' || filterTab !== 'all' || activeSector !== 'todos'}
+              />
+            </div>
 
-                  const isSecop1 = tender.source_platform === 'SECOP_I';
+          </div>
 
+        </div>
+
+        {/* WORKSPACE PRINCIPAL (DEBAJO DEL HERO EDGE-TO-EDGE) */}
+        <main className="flex-1 p-6 lg:p-8 max-w-[1600px] w-full mx-auto space-y-6">
+
+          {/* BARRA DE RESULTADOS Y SELECTOR DE VISTA */}
+          <ResultsControlBar
+            totalResults={sortedAndFilteredTenders.length}
+            currentSort={sortOption}
+            onSortChange={setSortOption}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+          />
+
+          {/* CUADRÍCULA DE 3 COLUMNAS O VISTA LISTA */}
+          {isLoadingTenders ? (
+            <div className="p-16 border border-dashed border-[#E4EAF3] dark:border-slate-800 rounded-2xl text-center space-y-3 bg-white dark:bg-[#111827]">
+              <Loader2 className="w-8 h-8 mx-auto text-[#0B5FFF] animate-spin" />
+              <p className="text-sm font-bold text-[#0B1739] dark:text-slate-200">Consultando Convocatorias Activas en SECOP I & II...</p>
+              <p className="text-xs text-[#64748B]">Filtrando exclusivamente procesos en presentación de ofertas</p>
+            </div>
+          ) : sortedAndFilteredTenders.length > 0 ? (
+            viewMode === 'grid' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                {sortedAndFilteredTenders.map((tender, index) => {
+                  const isSaved = Boolean(
+                    (tender.id && savedTenderIds.has(String(tender.id))) ||
+                    (tender.secop_id && savedTenderIds.has(String(tender.secop_id))) ||
+                    (tender.process_number && savedTenderIds.has(String(tender.process_number)))
+                  );
+                  return (
+                    <TenderGridCard
+                      key={`${tender.id || tender.process_number}-${index}`}
+                      tender={tender}
+                      isSaved={isSaved}
+                      onToggleSave={handleToggleSaveTender}
+                      onOpenDetail={(t) => {
+                        handleSelectTender(t);
+                        setIsDetailDrawerOpen(true);
+                      }}
+                      formatFriendlyDate={formatFriendlyDate}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              /* VISTA DE LISTA COMPACTA */
+              <div className="bg-white dark:bg-[#111827] rounded-2xl border border-[#E4EAF3] dark:border-slate-800 overflow-hidden divide-y divide-[#E4EAF3] dark:divide-slate-800 shadow-xs">
+                {sortedAndFilteredTenders.map((tender, index) => {
+                  const isSaved = Boolean(
+                    (tender.id && savedTenderIds.has(String(tender.id))) ||
+                    (tender.secop_id && savedTenderIds.has(String(tender.secop_id))) ||
+                    (tender.process_number && savedTenderIds.has(String(tender.process_number)))
+                  );
+                  const score = typeof tender.compatibility_score === 'number' ? tender.compatibility_score : 75;
                   return (
                     <div 
-                      key={`${tender.id || tender.process_number}-${index}-${filterTab}`}
-                      onClick={() => handleSelectTender(tender)}
-                      className={`p-3.5 rounded-2xl cursor-pointer bg-white dark:bg-[#111827] border transition-all ${
-                        isSelected 
-                          ? 'border-blue-600 dark:border-blue-500 ring-2 ring-blue-500/20 shadow-md bg-blue-50/20 dark:bg-blue-950/20' 
-                          : isLimitReached
-                          ? 'border-slate-200 dark:border-slate-800/80 opacity-80 hover:border-amber-400 dark:hover:border-amber-600 shadow-xs'
-                          : 'border-slate-200/80 dark:border-slate-800 hover:border-blue-300 dark:hover:border-slate-700 shadow-xs'
-                      }`}
+                      key={`${tender.id || tender.process_number}-${index}`}
+                      onClick={() => {
+                        handleSelectTender(tender);
+                        setIsDetailDrawerOpen(true);
+                      }}
+                      className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer transition-colors"
                     >
-                      <div className="flex items-start justify-between gap-2.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10.5px] font-mono font-bold text-slate-700 dark:text-slate-300">
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                          <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
                             {tender.process_number}
                           </span>
-
-                          {isSecop1 ? (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 text-[10px] font-bold border border-amber-200 dark:border-amber-800">
-                              SECOP I
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 text-[10px] font-bold border border-blue-200 dark:border-blue-800">
-                              SECOP II
-                            </span>
-                          )}
-
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            VIGENTE
+                          <span className="px-2 py-0.2 rounded-md bg-blue-50 text-[#0B5FFF] font-bold text-[10px]">
+                            {tender.source_platform}
                           </span>
-
-                          {currentPlanId === 'free' && isEvaluated && (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 text-[10px] font-bold border border-blue-200 dark:border-blue-800 flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                              EVALUADA ({evalUsage.evaluatedTenderIds.indexOf(tender.id) + 1}/5)
-                            </span>
-                          )}
-
-                          {isSubmitted && (
-                            <span className="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-bold shadow-xs flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> RADICADA
-                            </span>
-                          )}
+                          <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                            score >= 80 ? 'bg-emerald-50 text-emerald-700' : score >= 50 ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'
+                          }`}>
+                            {score}% Compatibilidad
+                          </span>
                         </div>
-
-                        {isLimitReached ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-amber-300 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                            <Lock className="w-2.5 h-2.5 text-amber-600" /> Requiere Plan Pyme
-                          </span>
-                        ) : (
-                          <span className={`px-2 py-0.5 rounded-md text-[10.5px] font-bold border ${badgeBg}`}>
-                            {badgeText}
-                          </span>
-                        )}
+                        <h4 className="text-sm font-semibold text-[#0B1739] dark:text-white line-clamp-1">
+                          {formatProcurementTitle(tender.title)}
+                        </h4>
+                        <p className="text-xs text-[#64748B] flex items-center gap-2">
+                          <span>{formatEntityName(tender.entity_name || (tender as any).entity || 'Entidad Oficial')}</span>
+                          <span className="text-slate-300 dark:text-slate-600 font-light">—</span>
+                          <span>Cierre: {formatFriendlyDate(tender.closing_date)}</span>
+                        </p>
                       </div>
 
-                      <h3 className="font-semibold text-xs text-slate-900 dark:text-slate-100 mt-2 line-clamp-2 leading-snug">
-                        {tender.title}
-                      </h3>
-
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
-                        <Building className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                        <span className="truncate">{tender.entity_name}</span>
-                      </p>
-
-                      {/* FECHAS OFICIALES Y PRESUPUESTO */}
-                      <div className="grid grid-cols-2 gap-2 mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[10.5px]">
+                      <div className="flex items-center gap-4 text-right flex-shrink-0">
                         <div>
-                          <span className="text-slate-400 block text-[9.5px]">Presupuesto Oficial</span>
-                          <span className="font-bold text-slate-900 dark:text-slate-200 font-mono">
-                            ${(tender.budget_cop >= 1000000 ? (tender.budget_cop / 1000000).toFixed(0) + 'M' : (tender.budget_cop / 1000).toFixed(0) + 'K')} COP
-                            <span className="text-[9.5px] text-slate-400 font-sans ml-1">({tender.budget_smmlv} SMMLV)</span>
-                          </span>
+                          <p className="text-xs font-bold text-[#0B5FFF]">
+                            ${Math.round(tender.budget_cop || 0).toLocaleString('es-CO')}
+                          </p>
+                          <span className="text-[10px] text-slate-400 capitalize">{tender.contract_type || 'Licitación'}</span>
                         </div>
-                        <div>
-                          <span className="text-amber-600 dark:text-amber-400 block text-[9.5px] font-semibold">Cierre de Ofertas</span>
-                          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1 truncate">
-                            <Clock className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                            {formatFriendlyDate(tender.closing_date)}
-                          </span>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleSaveTender(tender);
+                          }}
+                          className={`p-2 rounded-xl border transition-all ${
+                            isSaved 
+                              ? 'bg-amber-50 text-amber-500 border-amber-200' 
+                              : 'text-slate-400 hover:text-slate-600 border-slate-200 dark:border-slate-700'
+                          }`}
+                        >
+                          <Bookmark className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   );
-                })
-              ) : (
-                <div className="p-10 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-center text-slate-500 text-xs bg-white dark:bg-[#111827] space-y-2">
-                  <Search className="w-6 h-6 mx-auto text-slate-400" />
-                  <p className="font-bold text-slate-700 dark:text-slate-300">
-                    No hay licitaciones en el rango {filterTab === 'high_match' ? '≥80%' : filterTab === 'partial_match' ? '50-79%' : filterTab === 'low_match' ? '<50%' : 'seleccionado'}
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    {filterTab !== 'all' ? 'Actualmente las convocatorias disponibles se ubican en los otros rangos de compatibilidad.' : 'Intente seleccionando "Todas las Plataformas" o cambiando los términos de búsqueda.'}
-                  </p>
-                  {filterTab !== 'all' && (
-                    <button
-                      onClick={() => handleFilterTabChange('all')}
-                      className="mt-2 px-3 py-1.5 bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 font-bold rounded-lg text-xs hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors inline-block"
-                    >
-                      Ver Todas ({evaluatedTenders.length})
-                    </button>
-                  )}
-                </div>
-              )}
+                })}
+              </div>
+            )
+          ) : (
+            <div className="p-16 border border-dashed border-[#E4EAF3] dark:border-slate-800 rounded-2xl text-center space-y-4 bg-white dark:bg-[#111827]">
+              <Search className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
+              <div className="space-y-1">
+                <p className="text-sm font-bold text-[#0B1739] dark:text-slate-200">No se encontraron licitaciones activas</p>
+                <p className="text-xs text-[#64748B]">Intenta ajustar tus términos de búsqueda o cambiar los filtros de modalidad</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setModalityFilter('all');
+                  setActiveSector('todos');
+                  setPlatformFilter('all');
+                }}
+                className="px-4 py-2 rounded-xl bg-[#0B5FFF] hover:bg-[#084BD6] text-white text-xs font-semibold shadow-xs"
+              >
+                Restablecer Filtros
+              </button>
             </div>
-          </section>
-
-          {/* COLUMNA DERECHA: INSPECTOR TÉCNICO Y EVALUACIÓN ESTRUCTURADA (7 Cols) */}
-          <section className="lg:col-span-7 flex flex-col gap-4">
-            {selectedTender ? (
-              <div className="bg-white dark:bg-[#111827] rounded-2xl p-5 flex flex-col gap-4 border border-slate-200/80 dark:border-slate-800 shadow-[0_2px_8px_rgba(0,0,0,0.03)]">
-                
-                {/* 1. ENCABEZADO DEL PROCESO & BOTONES DE ACCIÓN PERMANENTES */}
-                <div className="border-b border-slate-100 dark:border-slate-800 pb-4">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      {selectedTender.source_platform === 'SECOP_I' ? (
-                        <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300 border border-amber-300 dark:border-amber-700 text-[11px] font-bold">
-                          SECOP I
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold">
-                          SECOP II
-                        </span>
-                      )}
-                                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-xs font-bold border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                        <span>CONVOCATORIA ACTIVA</span>
-                      </span>
-
-                      {planLimits.hasAddendaMonitoring247 ? (
-                        <span className="px-2.5 py-0.5 rounded-md bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-[10.5px] font-bold flex items-center gap-1">
-                          <Radio className="w-3 h-3 text-purple-600 animate-pulse" />
-                          <span>Monitoreo 24/7 Activo</span>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => triggerPlanGate('addenda_monitoring_247')}
-                          className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-300 border border-slate-200 dark:border-slate-700 text-[10px] font-semibold flex items-center gap-1 transition-colors"
-                          title="Monitoreo 24/7 de adendas en tiempo real (Plan Enterprise)"
-                        >
-                          <Radio className="w-3 h-3 text-purple-500" />
-                          <span>Monitoreo 24/7 (Enterprise 🔒)</span>
-                        </button>
-                      )}
-
-                      {selectedSubmission && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-blue-600 text-white text-xs font-bold shadow-xs flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>RADICADA: {selectedSubmission.radicadoCode}</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          const refToCopy = selectedTender.process_number || selectedTender.secop_id;
-                          navigator.clipboard.writeText(refToCopy);
-                          setCopiedRef(true);
-                          setTimeout(() => setCopiedRef(false), 2000);
-                        }}
-                        title="Copiar número de proceso para buscar en SECOP"
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition-colors"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>{copiedRef ? '¡Copiado!' : 'Copiar Ref'}</span>
-                      </button>
-
-                      {selectedTender.process_url && (
-                        <a 
-                          href={selectedTender.process_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors"
-                        >
-                          <span>Ver en {selectedTender.source_platform === 'SECOP_I' ? 'SECOP I' : 'SECOP II'} Oficial</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-
-                      <span className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 ${
-                        selectedTender.compatibility_score >= 80
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800'
-                          : selectedTender.compatibility_score >= 50
-                          ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-400 dark:border-rose-800'
-                      }`}>
-                        {selectedTender.compatibility_score >= 80 ? (
-                          <>
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Match Alto ({selectedTender.compatibility_score}%)
-                          </>
-                        ) : selectedTender.compatibility_score >= 50 ? (
-                          <>
-                            <AlertTriangle className="w-3.5 h-3.5" /> Match Parcial ({selectedTender.compatibility_score}%)
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-3.5 h-3.5" /> Match Bajo ({selectedTender.compatibility_score}%)
-                          </>
-                        )}
-                      </span>
-
-                      {/* BOTÓN CERRAR DETALLE (X) */}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTender(null)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1"
-                        title="Cerrar detalle de convocatoria"
-                        aria-label="Cerrar detalle"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <h1 className="text-base font-bold text-slate-900 dark:text-white mt-2.5 leading-snug">
-                    {selectedTender.title}
-                  </h1>
-
-                  <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">{selectedTender.entity_name}</span>
-                    <span>•</span>
-                    <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10.5px]">
-                      Modalidad: {selectedTender.contract_type}
-                    </span>
-                    <span>•</span>
-                    <span className="text-slate-500">{selectedTender.department}</span>
-                  </div>
-
-                  {/* GRID DE FECHAS & PRESUPUESTO */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 text-xs">
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-blue-500" /> Publicación
-                      </span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {formatFriendlyDate(selectedTender.publication_date)}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 uppercase font-bold block flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-amber-500" /> Cierre Ofertas
-                      </span>
-                      <span className="font-bold text-amber-800 dark:text-amber-300">
-                        {formatFriendlyDate(selectedTender.closing_date)}
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Presupuesto Oficial</span>
-                      <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">
-                        ${(selectedTender.budget_cop >= 1000000 ? (selectedTender.budget_cop / 1000000).toFixed(1) + 'M' : (selectedTender.budget_cop / 1000).toFixed(0) + 'K')} COP
-                      </span>
-                    </div>
-
-                    <div>
-                      <span className="text-[10px] text-slate-400 uppercase font-bold block">Experiencia SMMLV</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {selectedTender.experience_compliance.smmlv_required} SMMLV
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* BARRA DE ACCIÓN PRINCIPAL */}
-                  <div className="mt-3.5">
-                    {selectedSubmission ? (
-                      <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-700 flex items-center justify-between flex-wrap gap-2 shadow-xs">
-                        <div className="flex items-center gap-2.5">
-                          <div className="p-1.5 rounded-lg bg-emerald-600 text-white font-bold">
-                            <CheckCircle2 className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-emerald-950 dark:text-emerald-200">
-                              Oferta Radicada Satisfactoriamente en {selectedTender.source_platform.replace('_', ' ')}
-                            </p>
-                            <p className="text-[11px] text-emerald-700 dark:text-emerald-300 font-mono">
-                              N° Radicado: <span className="font-bold">{selectedSubmission.radicadoCode}</span> • {selectedSubmission.submittedAt}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setIsHistoryModalOpen(true)}
-                            className="py-1.5 px-3 bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 transition-colors"
-                          >
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>Ver Historial</span>
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!planLimits.hasDossierGenerator) {
-                                triggerPlanGate('dossier_generator');
-                                return;
-                              }
-                              setIsDossierModalOpen(true);
-                            }}
-                            className="py-1.5 px-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center gap-1.5 transition-colors"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Ver Expediente</span>
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col sm:flex-row items-center gap-2">
-                        <button 
-                          onClick={() => {
-                            if (!planLimits.hasDossierGenerator) {
-                              triggerPlanGate('dossier_generator');
-                              return;
-                            }
-                            setIsDossierModalOpen(true);
-                          }}
-                          className="flex-1 w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors"
-                        >
-                          <FileCheck className="w-4 h-4" />
-                          <span>Ver y Preparar Expediente ({company.name})</span>
-                          {!planLimits.hasDossierGenerator && <Lock className="w-3.5 h-3.5 text-blue-200" />}
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (!planLimits.has1ClickSubmission) {
-                              triggerPlanGate('submission_1click');
-                              return;
-                            }
-                            setIsSubmissionWizardOpen(true);
-                          }}
-                          className="w-full sm:w-auto py-2.5 px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
-                        >
-                          <SendHorizontal className="w-4 h-4" />
-                          <span>Radicar en 1 Clic 🚀</span>
-                          {!planLimits.has1ClickSubmission && <Lock className="w-3.5 h-3.5 text-emerald-200" />}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. PESTAÑAS DE VISTA DEL PROCESO (ESTILO SAAS REPOSITORY TABS DE LA IMAGEN) */}
-                <div className="flex items-center gap-2 border-b border-slate-200/80 dark:border-slate-800 pb-0.5">
-                  <button
-                    onClick={() => setDetailTab('matrix')}
-                    className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
-                      detailTab === 'matrix'
-                        ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    <span>Matriz & Diagnóstico</span>
-                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[10px] rounded-full flex items-center gap-1">
-                      {!planLimits.hasExactGapDiagnosis && <Lock className="w-2.5 h-2.5 text-blue-700" />}
-                      <span>RUP</span>
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => setDetailTab('assistant')}
-                    className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
-                      detailTab === 'assistant'
-                        ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <Bot className="w-4 h-4" />
-                    <span>Asistente Legal IA (Gemini)</span>
-                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[10px] rounded-full flex items-center gap-1">
-                      {!planLimits.hasRagAssistant && <Lock className="w-2.5 h-2.5 text-blue-700" />}
-                      <span>Pliegos</span>
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={() => setDetailTab('checklist')}
-                    className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${
-                      detailTab === 'checklist'
-                        ? 'border-blue-600 text-blue-600 dark:text-blue-400'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    <CheckSquare className="w-4 h-4" />
-                    <span>Checklist & Documentos</span>
-                    <span className="px-1.5 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-900/60 dark:text-blue-300 text-[10px] rounded-full flex items-center gap-1">
-                      {!planLimits.hasChecklistDocs && <Lock className="w-2.5 h-2.5 text-blue-700" />}
-                      <span>Docs</span>
-                    </span>
-                  </button>
-                </div>
-
-                {/* 3. CONTENIDO DINÁMICO POR PESTAÑA */}
-                
-                {/* PESTAÑA 1: MATRIZ Y DIAGNÓSTICO */}
-                {detailTab === 'matrix' && (
-                  planLimits.hasExactGapDiagnosis ? (
-                    <div className="space-y-4">
-                      
-                      {/* BRECHAS Y RECOMENDACIÓN ESTRATÉGICA */}
-                      {selectedTender.missing_requirements.length > 0 ? (
-                        <div className={`p-4 rounded-xl border text-slate-900 dark:text-slate-100 space-y-3 ${
-                          selectedTender.compatibility_score >= 50 
-                            ? 'bg-amber-50/60 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800/60' 
-                            : 'bg-rose-50/60 border-rose-200 dark:bg-rose-950/20 dark:border-rose-800/60'
-                        }`}>
-                          <div className={`flex items-center gap-2 font-bold text-xs uppercase tracking-wider ${
-                            selectedTender.compatibility_score >= 50 ? 'text-amber-800 dark:text-amber-400' : 'text-rose-800 dark:text-rose-400'
-                          }`}>
-                            <AlertCircle className="w-4 h-4" />
-                            <span>
-                              {selectedTender.compatibility_score >= 50 
-                                ? `Faltantes para alcanzar el 100% de Match (${company.name})` 
-                                : `Faltantes Críticos de Habilitación (${selectedTender.compatibility_score}% Match)`}
-                            </span>
-                          </div>
-
-                          <div className="space-y-2 text-xs">
-                            {selectedTender.missing_requirements.map((req, idx) => (
-                              <div key={idx} className="p-2.5 rounded-lg bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-slate-800 font-medium text-slate-800 dark:text-slate-200 flex items-start gap-2 shadow-xs">
-                                <span className={selectedTender.compatibility_score >= 50 ? "text-amber-600 dark:text-amber-400 font-bold" : "text-rose-600 dark:text-rose-400 font-bold"}>•</span>
-                                <span>{req}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="pt-2 border-t border-slate-200/80 dark:border-slate-800 text-xs">
-                            <p className="font-bold text-slate-900 dark:text-slate-200 flex items-center gap-1.5">
-                              <Users className="w-4 h-4 text-blue-600" /> Estrategia Sugerida para Postularse:
-                            </p>
-                            <p className="text-slate-700 dark:text-slate-300 mt-1 leading-relaxed">
-                              {selectedTender.strategy_recommendation}
-                            </p>
-                            {planLimits.hasAdvancedConsortium ? (
-                              <div className="mt-3 p-3.5 rounded-2xl bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 dark:from-purple-950/40 dark:via-indigo-950/30 dark:to-purple-950/40 border border-purple-200 dark:border-purple-800/80 space-y-2.5 shadow-xs">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                  <div className="flex items-start gap-2.5">
-                                    <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs flex-shrink-0 mt-0.5">
-                                      <Users className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <h5 className="font-bold text-xs text-purple-950 dark:text-purple-200">
-                                          Simulador & Estructurador de Consorcios (Plan Enterprise)
-                                        </h5>
-                                        <span className="px-2 py-0.5 bg-purple-200 dark:bg-purple-900 text-purple-900 dark:text-purple-200 text-[10px] font-bold rounded-full">
-                                          Solución Activa
-                                        </span>
-                                      </div>
-                                      <p className="text-[11px] text-purple-800 dark:text-purple-300 mt-0.5 leading-relaxed">
-                                        Genera la solución en proponente plural (Consorcio / UT), simula el 100% de habilitación y descarga la minuta legal oficial para SECOP.
-                                      </p>
-                                    </div>
-                                  </div>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsConsortiumModalOpen(true)}
-                                    className="py-2 px-3.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-purple-600/25 hover:scale-[1.02] transition-all cursor-pointer flex-shrink-0"
-                                  >
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                    <span>Abrir Simulador de Consorcio</span>
-                                    <ArrowRight className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => triggerPlanGate('advanced_consortium')}
-                                className="mt-2 text-[11px] font-semibold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1"
-                              >
-                                <Sparkles className="w-3 h-3 text-purple-500" />
-                                <span>Ver Recomendación Avanzada de Consorcios & Porcentajes (Plan Enterprise 🔒)</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800">
-                          <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                            <CheckCircle2 className="w-4 h-4" /> ¡Sin Brechas de Habilitación! Cumplimiento Total
-                          </h4>
-                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                            {selectedTender.executive_summary}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* TABLA COMPARATIVA FORMAL DE MATRIZ FINANCIERA & RUP */}
-                      <div>
-                        <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
-                          Matriz Comparativa: {company.name} vs Requisitos Oficiales
-                        </h3>
-
-                        <div className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
-                          <table className="w-full text-left enterprise-table">
-                            <thead>
-                              <tr>
-                                <th>Criterio de Evaluación</th>
-                                <th>Requisito Exigido</th>
-                                <th>Acreditación Empresa</th>
-                                <th>Estado & Faltantes</th>
-                                <th>Fuente Oficial en Pliego</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-[#111827]">
-                              <tr>
-                                <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Liquidez</td>
-                                <td className="text-slate-600 dark:text-slate-400">&ge; {selectedTender.financial_compliance.liquidity.required.toFixed(2)}</td>
-                                <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.financial_compliance.liquidity.value.toFixed(2)}</td>
-                                <td>
-                                  {selectedTender.financial_compliance.liquidity.passes ? (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <Check className="w-3.5 h-3.5" /> Cumple
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                      <X className="w-3.5 h-3.5" /> Falta Margen de {selectedTender.financial_compliance.liquidity.gap.toFixed(2)}
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCitation(selectedTender.financial_compliance.liquidity.citation);
-                                      setIsCitationModalOpen(true);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
-                                    title="Haz clic para auditar la página y el texto legal del pliego"
-                                  >
-                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
-                                    <span>Pág. {selectedTender.financial_compliance.liquidity.citation.page} · {selectedTender.financial_compliance.liquidity.citation.numeral}</span>
-                                  </button>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="font-medium text-slate-900 dark:text-slate-200">Índice de Endeudamiento</td>
-                                <td className="text-slate-600 dark:text-slate-400">&le; {(selectedTender.financial_compliance.debt.max_allowed * 100).toFixed(0)}%</td>
-                                <td className="font-semibold text-slate-900 dark:text-slate-200">{(selectedTender.financial_compliance.debt.value * 100).toFixed(1)}%</td>
-                                <td>
-                                  {selectedTender.financial_compliance.debt.passes ? (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <Check className="w-3.5 h-3.5" /> Cumple
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                      <X className="w-3.5 h-3.5" /> Excede por {(selectedTender.financial_compliance.debt.gap * 100).toFixed(1)}%
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCitation(selectedTender.financial_compliance.debt.citation);
-                                      setIsCitationModalOpen(true);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
-                                    title="Haz clic para auditar la página y el texto legal del pliego"
-                                  >
-                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
-                                    <span>Pág. {selectedTender.financial_compliance.debt.citation.page} · {selectedTender.financial_compliance.debt.citation.numeral}</span>
-                                  </button>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="font-medium text-slate-900 dark:text-slate-200">Experiencia RUP (SMMLV)</td>
-                                <td className="text-slate-600 dark:text-slate-400">{selectedTender.experience_compliance.smmlv_required} SMMLV</td>
-                                <td className="font-semibold text-slate-900 dark:text-slate-200">{selectedTender.experience_compliance.smmlv_accumulated} SMMLV</td>
-                                <td>
-                                  {selectedTender.experience_compliance.passes ? (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <Check className="w-3.5 h-3.5" /> Cumple
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                                      <AlertTriangle className="w-3.5 h-3.5" /> Faltan {selectedTender.experience_compliance.smmlv_gap.toFixed(1)} SMMLV
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCitation(selectedTender.experience_compliance.citation);
-                                      setIsCitationModalOpen(true);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
-                                    title="Haz clic para auditar la página y el texto legal del pliego"
-                                  >
-                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
-                                    <span>Pág. {selectedTender.experience_compliance.citation.page} · {selectedTender.experience_compliance.citation.numeral}</span>
-                                  </button>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="font-medium text-slate-900 dark:text-slate-200">Clasificación UNSPSC</td>
-                                <td className="text-slate-600 dark:text-slate-400">{(selectedTender.required_unspsc || selectedTender.unspsc_codes || ['80101500']).join(', ')}</td>
-                                <td className="font-semibold text-slate-900 dark:text-slate-200">
-                                  {selectedTender.experience_compliance.unspsc_matched.length > 0
-                                    ? selectedTender.experience_compliance.unspsc_matched.join(', ')
-                                    : 'Sin coincidencia'}
-                                </td>
-                                <td>
-                                  {selectedTender.experience_compliance.unspsc_matched.length > 0 ? (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <Check className="w-3.5 h-3.5" /> Cumple
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-600 dark:text-rose-400">
-                                      <X className="w-3.5 h-3.5" /> Código no acreditado
-                                    </span>
-                                  )}
-                                </td>
-                                <td>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setActiveCitation(selectedTender.experience_compliance.unspsc_citation);
-                                      setIsCitationModalOpen(true);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all cursor-pointer shadow-2xs group"
-                                    title="Haz clic para auditar la página y el texto legal del pliego"
-                                  >
-                                    <FileText className="w-3 h-3 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform" />
-                                    <span>Pág. {selectedTender.experience_compliance.unspsc_citation.page} · {selectedTender.experience_compliance.unspsc_citation.numeral}</span>
-                                  </button>
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                    </div>
-                  ) : (
-                    /* BLOQUE DE RESTRICCIÓN PARA PLAN EXPLORADOR RUP (FREE) */
-                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <div className="max-w-md mx-auto space-y-1.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                          FUNCIÓN EXCLUSIVA PLAN PYME CONTRATISTA
-                        </span>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
-                          Matriz Financiera & Diagnóstico Exacto de Brechas RUP
-                        </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          Conoce con precisión matemática los faltantes en liquidez, endeudamiento y experiencia SMMLV de tu empresa frente al pliego oficial, con auditoría legal de requisitos subsanables.
-                        </p>
-                      </div>
-
-                      {/* Mockup difuminado de la matriz */}
-                      <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 max-w-md mx-auto blur-[2px] select-none space-y-2">
-                        <div className="flex justify-between border-b pb-1">
-                          <span>Índice de Liquidez (Exigido: ≥ 1.50)</span>
-                          <span className="font-bold text-emerald-600">Cumple (2.40)</span>
-                        </div>
-                        <div className="flex justify-between border-b pb-1">
-                          <span>Índice de Endeudamiento (Exigido: ≤ 70%)</span>
-                          <span className="font-bold text-rose-600">Excede por 8.2%</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Experiencia RUP en SMMLV</span>
-                          <span className="font-bold text-amber-600">Faltan 145 SMMLV</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => triggerPlanGate('exact_gap_diagnosis')}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-2 transition-colors"
-                      >
-                        <ShieldCheck className="w-4 h-4" />
-                        <span>Desbloquear Matriz & Diagnóstico con Plan Pyme</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )
-                )}
-
-                {/* PESTAÑA 2: ASISTENTE LEGAL & PLIEGOS (IA GEMINI) */}
-                {detailTab === 'assistant' && (
-                  planLimits.hasRagAssistant ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div>
-                          <h4 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                            <Bot className="w-4 h-4 text-blue-600" /> Consultor Jurídico de Pliegos & Contratación
-                          </h4>
-                          <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
-                            Especialista en Ley 80/1993, Ley 1150/2007, Decreto 1082/2015 y Colombia Compra Eficiente
-                          </p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 rounded-md border border-blue-200 dark:border-blue-800">
-                            IA Gemini + RAG
-                          </span>
-                          {queryHistory.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => setQueryHistory([
-                                {
-                                  sender: 'system',
-                                  text: `### 🤖 Asistente Jurídico y de Pliegos Activo\nHistorial reiniciado. Puedes consultar cualquier duda sobre **requisitos habilitantes, uniones temporales, subsanabilidad o garantías** para este proceso.`
-                                }
-                              ])}
-                              title="Limpiar conversación"
-                              className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* SUGERENCIAS RÁPIDAS DE PREGUNTAS */}
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[10.5px] no-scrollbar">
-                        <button
-                          type="button"
-                          onClick={() => handleSendQuery(undefined, "¿Puedo presentarme en Unión Temporal si no cumplo el indicador de endeudamiento o experiencia?")}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-300 whitespace-nowrap transition-colors"
-                        >
-                          🤝 ¿Unión Temporal / Consorcio?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSendQuery(undefined, "¿Qué requisitos y documentos son subsanables y cuáles dan lugar a rechazo de la oferta?")}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-300 whitespace-nowrap transition-colors"
-                        >
-                          📄 ¿Qué es subsanable?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSendQuery(undefined, "¿Cómo acredito la capacidad financiera de liquidez y endeudamiento exigida en este pliego?")}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-300 whitespace-nowrap transition-colors"
-                        >
-                          📊 ¿Índices Financieros?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSendQuery(undefined, "¿Qué pólizas, garantías de seriedad y porcentajes de anticipo aplican a este proceso?")}
-                          className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-300 whitespace-nowrap transition-colors"
-                        >
-                          🛡️ ¿Garantías y Pólizas?
-                        </button>
-                      </div>
-
-                      {/* VENTANA DE HISTORIAL DE MENSAJES */}
-                      <div className="bg-slate-50 dark:bg-slate-900/70 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-4 h-72 overflow-y-auto space-y-3 text-xs shadow-inner">
-                        {queryHistory.map((msg, idx) => (
-                          <div 
-                            key={idx} 
-                            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-                          >
-                            <div className={`max-w-[90%] rounded-2xl p-3.5 leading-relaxed shadow-xs ${
-                              msg.sender === 'user' 
-                                ? 'bg-blue-600 text-white font-medium' 
-                                : 'bg-white dark:bg-[#1e293b] border border-slate-200/90 dark:border-slate-800 text-slate-800 dark:text-slate-200'
-                            }`}>
-                              {msg.sender === 'user' ? (
-                                <div className="flex items-start gap-2">
-                                  <span className="flex-1">{msg.text}</span>
-                                  <User className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 opacity-80" />
-                                </div>
-                              ) : (
-                                <div>
-                                  {renderMessageContent(msg.text)}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-
-                        {isQuerying && (
-                          <div className="flex justify-start">
-                            <div className="bg-white dark:bg-[#1e293b] border border-blue-200 dark:border-blue-800/80 rounded-2xl p-3 text-xs shadow-xs flex items-center gap-2.5 text-blue-700 dark:text-blue-300">
-                              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                              <span className="font-semibold">El consultor jurídico está analizando el pliego con IA...</span>
-                            </div>
-                          </div>
-                        )}
-
-                        <div ref={chatBottomRef} />
-                      </div>
-
-                      {/* FORMULARIO DE CONSULTA */}
-                      <form onSubmit={(e) => handleSendQuery(e)} className="flex gap-2">
-                        <div className="relative flex-1">
-                          <input 
-                            type="text" 
-                            value={queryMessage}
-                            disabled={isQuerying}
-                            onChange={(e) => setQueryMessage(e.target.value)}
-                            placeholder="Pregunta sobre este pliego (ej: ¿Se permite subcontratar? ¿Cuál es la garantía exigida?)..." 
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white dark:focus:bg-slate-900 transition-all disabled:opacity-50"
-                          />
-                          {queryMessage && (
-                            <button
-                              type="button"
-                              onClick={() => setQueryMessage('')}
-                              className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        <button 
-                          type="submit"
-                          disabled={isQuerying || !queryMessage.trim()}
-                          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition-colors shadow-xs flex items-center gap-1.5"
-                        >
-                          {isQuerying ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Analizando...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Send className="w-3.5 h-3.5" />
-                              <span>Consultar</span>
-                            </>
-                          )}
-                        </button>
-                      </form>
-                    </div>
-                  ) : (
-                    /* BLOQUE DE RESTRICCIÓN DEL ASISTENTE RAG PARA PLAN GRATUITO */
-                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <div className="max-w-md mx-auto space-y-1.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                          FUNCIÓN EXCLUSIVA PLAN PYME CONTRATISTA
-                        </span>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
-                          Asistente RAG Conversacional sobre Pliegos (Gemini 1.5 Pro)
-                        </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          Consulta en lenguaje natural requisitos habilitantes, causales de rechazo, pólizas y cláusulas del pliego con fundamentación jurídica en tiempo real.
-                        </p>
-                      </div>
-
-                      <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 max-w-sm mx-auto blur-[1.5px] select-none">
-                        "¿Puedo presentarme en Unión Temporal si no cumplo el indicador de endeudamiento?"
-                      </div>
-
-                      <button
-                        onClick={() => triggerPlanGate('rag_assistant')}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-2 transition-colors"
-                      >
-                        <Bot className="w-4 h-4" />
-                        <span>Desbloquear Asistente IA con Plan Pyme</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )
-                )}
-
-                {/* PESTAÑA 3: CHECKLIST & DOCUMENTOS EXIGIDOS */}
-                {detailTab === 'checklist' && (
-                  planLimits.hasChecklistDocs ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
-                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600" /> Puntos Fuertes Acreditados
-                        </h4>
-                        <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                          {selectedTender.reasons.map((r, i) => (
-                            <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                              <span className="text-emerald-600 dark:text-emerald-400 font-bold">•</span>
-                              <span>{r}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-2.5">
-                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                          <FileText className="w-4 h-4 text-blue-600" /> Checklist de Documentos Exigidos
-                        </h4>
-                        <ul className="space-y-2 text-xs text-slate-600 dark:text-slate-300">
-                          {selectedTender.required_documents.map((d, i) => (
-                            <li key={i} className="flex items-start gap-2 leading-tight bg-white dark:bg-[#1e293b] p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 flex-shrink-0" />
-                              <span>{d}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  ) : (
-                    /* BLOQUE DE RESTRICCIÓN DE CHECKLIST PARA PLAN GRATUITO */
-                    <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
-                      <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto shadow-xs">
-                        <Lock className="w-6 h-6" />
-                      </div>
-                      <div className="max-w-md mx-auto space-y-1.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300">
-                          FUNCIÓN EXCLUSIVA PLAN PYME CONTRATISTA
-                        </span>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white mt-1">
-                          Checklist de Documentos Exigidos & Puntos Fuertes
-                        </h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                          Auditoría automática de los pliegos conforme al Decreto 1082 de 2015. Identifica los documentos jurídicos, financieros y técnicos que tu empresa debe adjuntar para no ser rechazada.
-                        </p>
-                      </div>
-
-                      {/* Mockup difuminado del checklist */}
-                      <div className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px] text-slate-400 max-w-md mx-auto blur-[2px] select-none space-y-2 text-left">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Certificado RUP Vigente expedido por Cámara de Comercio</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Garantía de Seriedad de la Oferta (10% del Presupuesto)</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Carta de Presentación de la Propuesta (Anexo N° 1)</span>
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={() => triggerPlanGate('checklist_docs')}
-                        className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs inline-flex items-center gap-2 transition-colors"
-                      >
-                        <CheckSquare className="w-4 h-4" />
-                        <span>Desbloquear Checklist con Plan Pyme</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )
-                )}
-
-              </div>
-            ) : currentPlanId === 'free' && evalUsage.count >= 5 ? (
-              <div className="p-12 text-center text-xs bg-white dark:bg-[#111827] rounded-2xl border border-amber-200 dark:border-amber-800/80 flex flex-col items-center justify-center gap-4">
-                <div className="w-14 h-14 rounded-3xl bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-xs">
-                  <Lock className="w-7 h-7" />
-                </div>
-                <div className="max-w-md space-y-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300">
-                    LÍMITE MENSUAL ALCANZADO (5/5)
-                  </span>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    Has utilizado tus 5 evaluaciones del Plan Explorador RUP
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Puedes consultar y volver a abrir cualquiera de las <strong>5 licitaciones ya evaluadas</strong> en la lista de la izquierda (marcadas con "Evaluada"), o actualizar a Plan Pyme Contratista para evaluaciones <strong>ILIMITADAS</strong> y acceso a todas las herramientas avanzadas.
-                  </p>
-                </div>
-                <button
-                  onClick={() => setIsSubModalOpen(true)}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition-all hover:scale-105 flex items-center gap-2"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>Actualizar a Plan Pyme Contratista (Ilimitado)</span>
-                </button>
-              </div>
-            ) : (
-              <div className="p-16 text-center text-slate-400 text-xs bg-white dark:bg-[#111827] rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col items-center justify-center gap-3">
-                <Folder className="w-10 h-10 text-blue-500/40" />
-                <p className="font-semibold text-slate-600 dark:text-slate-300 text-sm">Ningún proceso seleccionado</p>
-                <p className="text-[11px] text-slate-400 max-w-sm">
-                  Selecciona una convocatoria de la lista izquierda para visualizar la matriz de habilitación y consultar el asistente legal con IA.
-                </p>
-              </div>
-            )}
-          </section>
-
+          )}
         </main>
       </div>
+
+      {/* DRAWER LATERAL DE DETALLE DE LICITACIÓN (PROGRESSIVE DISCLOSURE) */}
+      <TenderDetailDrawer
+        isOpen={isDetailDrawerOpen}
+        onClose={() => setIsDetailDrawerOpen(false)}
+        tender={selectedTender}
+        company={company}
+        planLimits={planLimits}
+        onTriggerPlanGate={triggerPlanGate}
+        isSaved={Boolean(
+          selectedTender && (
+            (selectedTender.id && savedTenderIds.has(String(selectedTender.id))) ||
+            (selectedTender.secop_id && savedTenderIds.has(String(selectedTender.secop_id))) ||
+            (selectedTender.process_number && savedTenderIds.has(String(selectedTender.process_number)))
+          )
+        )}
+        onToggleSave={(t) => handleToggleSaveTender(t)}
+        onOpenDossier={() => setIsDossierModalOpen(true)}
+        onOpenSubmissionWizard={() => setIsSubmissionWizardOpen(true)}
+        onOpenHistory={() => setIsHistoryModalOpen(true)}
+        onOpenConsortium={() => setIsConsortiumModalOpen(true)}
+        selectedSubmission={selectedSubmission}
+        queryHistory={queryHistory}
+        queryMessage={queryMessage}
+        setQueryMessage={setQueryMessage}
+        onSendQuery={handleSendQuery}
+        isQuerying={isQuerying}
+        chatBottomRef={chatBottomRef}
+        similarTenders={similarTendersForSelected}
+        onSelectSimilarTender={handleSelectTender}
+        savedTenderIds={savedTenderIds}
+        formatFriendlyDate={formatFriendlyDate}
+        onOpenCitation={(citation) => {
+          setActiveCitation(citation);
+          setIsCitationModalOpen(true);
+        }}
+      />
 
       {/* MODAL DE PREVISUALIZACIÓN Y DESCARGA REAL DEL EXPEDIENTE */}
       {selectedTender && (
@@ -3122,6 +2121,10 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           setFormCompany(newCompanyData);
           storeCompanyProfile(newCompanyData);
           setIsOnboardingOpen(false);
+          if (newCompanyData.onboarding_route === 'without_rup_minima_cuantia') {
+            setModalityFilter('minima_cuantia');
+            loadOfficialTenders(undefined, false, 'SECOP_II', 'minima_cuantia');
+          }
         }}
       />
 

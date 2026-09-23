@@ -4,6 +4,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { CinematicFooter } from "./ui/motion-footer";
 import { FuturisticHero } from "./ui/hero-futuristic";
 import { FreeProcurementToolsSection } from "./tools/FreeProcurementToolsSection";
+import emotivaLogo from "../assets/logo.webp";
 import {
   CheckCircle2,
   TrendingUp,
@@ -212,11 +213,11 @@ export function LandingPage({
             onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
             className="flex items-center gap-3 cursor-pointer group"
           >
-            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white font-black text-lg shadow-md shadow-blue-500/30 group-hover:scale-105 transition-transform">
-              <Building2 className="w-5 h-5" />
+            <div className="w-9 h-9 flex items-center justify-center group-hover:scale-105 transition-transform flex-shrink-0">
+              <img src={emotivaLogo} alt="Emotiva LicitIA" className="w-full h-full object-contain drop-shadow-sm" />
             </div>
             <span className="text-xl font-black tracking-tight text-slate-900 dark:text-white">
-              Licit<span className="text-blue-600 dark:text-blue-400">IA</span>
+              Emotiva <span className="text-blue-600 dark:text-blue-400">LicitIA</span>
             </span>
           </div>
 

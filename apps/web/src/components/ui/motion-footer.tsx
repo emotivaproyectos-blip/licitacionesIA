@@ -10,10 +10,8 @@ if (typeof window !== "undefined") {
 }
 
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap');
-
 .cinematic-footer-wrapper {
-  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-family: inherit;
   -webkit-font-smoothing: antialiased;
   
   --pill-bg-1: color-mix(in oklch, var(--foreground, #0f172a) 4%, transparent);

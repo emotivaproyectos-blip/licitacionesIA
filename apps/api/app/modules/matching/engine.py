@@ -23,11 +23,77 @@ class CompatibilityEngine:
     def evaluate(
         company_financials: Dict[str, Any],
         company_experiences: List[Dict[str, Any]],
-        tender_requirements: Dict[str, Any]
+        tender_requirements: Dict[str, Any],
+        is_minima_cuantia: bool = False,
+        proponent_profile: Optional[Dict[str, Any]] = None
     ) -> EvaluationResult:
         reasons: List[str] = []
         risks: List[str] = []
         missing_docs: List[str] = []
+
+        # Caso especial Mínima Cuantía: Ley 1150 de 2007 Art 6 Parágrafo 1 (No exige RUP ni índices financieros)
+        if is_minima_cuantia or "minima" in str(tender_requirements.get("contract_type", "")).lower():
+            financial_score = 100.0
+            reasons.append("✓ Mínima Cuantía (Ley 1150/2007 Art. 6 Par. 1): No se exige RUP ni capacidad financiera habilitante mediante índices de liquidez o endeudamiento.")
+
+            # Detección de inconsistencia en el pliego si la entidad menciona RUP
+            if tender_requirements.get("requires_rup") or "rup" in str(tender_requirements.get("description", "")).lower():
+                risks.append("Inconsistencia normativa detectada: la invitación menciona RUP; conforme a la Ley 1150 de 2007 el RUP no es exigible en mínima cuantía. Requiere verificación con la entidad.")
+
+            # Evaluación de afinidad técnica y sectorial (sin penalizar falta de contratos RUP)
+            experience_score = 85.0
+            required_unspsc = [str(u).strip() for u in tender_requirements.get("required_unspsc", []) if str(u).strip()]
+            company_unspsc_list = []
+            for exp in company_experiences:
+                for c in exp.get("unspsc_codes", []):
+                    clean_c = str(c).strip()
+                    if clean_c:
+                        company_unspsc_list.append(clean_c)
+
+            if proponent_profile:
+                company_unspsc_list.extend(proponent_profile.get("unspsc_codes", []))
+
+            unspsc_matched = False
+            if not required_unspsc:
+                unspsc_matched = True
+            else:
+                for req in required_unspsc:
+                    for comp in company_unspsc_list:
+                        if comp == req or (len(comp) >= 6 and len(req) >= 6 and comp[:6] == req[:6]) or (len(comp) >= 4 and len(req) >= 4 and comp[:4] == req[:4]):
+                            unspsc_matched = True
+                            break
+                    if unspsc_matched:
+                        break
+
+            if unspsc_matched:
+                experience_score = 95.0
+                reasons.append("✓ Coincidencia en actividad o sector de bienes/servicios afines.")
+            else:
+                reasons.append("ℹ Revisa las especificaciones técnicas de la invitación para confirmar si tu actividad cubre los bienes o servicios requeridos.")
+
+            legal_score = 100.0
+            reasons.append("✓ Capacidad jurídica preliminar declarada conforme a tu ficha de proponente.")
+
+            overall_score = (financial_score * 0.30) + (experience_score * 0.50) + (legal_score * 0.20)
+            verdict = "RECOMMENDED" if overall_score >= 80.0 else "RISKY"
+            summary_reason = (
+                "Coincide con tu perfil de proponente para Mínima Cuantía. "
+                "Este porcentaje refleja afinidad y no garantiza adjudicación ni certifica cumplimiento oficial; "
+                "debes verificar los requisitos particulares en los pliegos de SECOP II."
+            )
+
+            return EvaluationResult(
+                overall_score=round(overall_score, 1),
+                financial_score=round(financial_score, 1),
+                experience_score=round(experience_score, 1),
+                legal_score=round(legal_score, 1),
+                verdict=verdict,
+                summary_reason=summary_reason,
+                detailed_reasons=reasons,
+                identified_risks=risks,
+                missing_documents=missing_docs,
+                confidence_level=95.0
+            )
         
         # 1. EVALUACIÓN FINANCIERA (Reglas duras SECOP)
         financial_score = 100.0

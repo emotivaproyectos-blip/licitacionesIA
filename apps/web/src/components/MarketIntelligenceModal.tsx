@@ -140,9 +140,9 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
       <div className="bg-white dark:bg-slate-900 w-full max-w-5xl max-h-[90vh] rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
         
         {/* Header con gradiente */}
-        <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-50 via-indigo-50/40 to-slate-50 dark:from-slate-900 dark:via-indigo-950/20 dark:to-slate-900">
+        <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-slate-50 via-blue-50/40 to-slate-50 dark:from-slate-900 dark:via-blue-950/20 dark:to-slate-900">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600 text-white rounded-xl shadow-md shadow-indigo-600/20">
+            <div className="p-2.5 bg-blue-600 text-white rounded-xl shadow-md shadow-blue-600/20">
               <BarChart3 className="w-6 h-6" />
             </div>
             <div>
@@ -173,7 +173,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
             onClick={() => setActiveTab('competitors')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
               activeTab === 'competitors'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 rounded-t-lg'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
@@ -187,7 +187,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
             }}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
               activeTab === 'entities'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 rounded-t-lg'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
@@ -198,13 +198,13 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
             onClick={() => setActiveTab('paa')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-all ${
               activeTab === 'paa'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 rounded-t-lg'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 rounded-t-lg'
                 : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
           >
             <Calendar className="w-4 h-4" />
             Radar PAA (Compras Tempranas)
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
               Antes de pliegos
             </span>
           </button>
@@ -234,13 +234,13 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                       value={competitorQuery}
                       onChange={(e) => setCompetitorQuery(e.target.value)}
                       placeholder="Ingresa el NIT o razón social del competidor (ej: 900222111 o Sistemas de Información)..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={isSearchingCompetitor}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm disabled:opacity-50 transition-colors"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm disabled:opacity-50 transition-colors"
                   >
                     {isSearchingCompetitor ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -262,7 +262,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                         setCompetitorQuery(tag);
                         handleSearchCompetitor(tag);
                       }}
-                      className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-600 transition-colors"
+                      className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-blue-900/40 hover:text-blue-600 transition-colors"
                     >
                       {tag}
                     </button>
@@ -281,9 +281,9 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
               {competitorData && (
                 <div className="space-y-6">
                   {/* Encabezado del perfil */}
-                  <div className="p-5 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="p-5 bg-gradient-to-br from-blue-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                         Contratista del Estado · SECOP II
                       </span>
                       <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mt-0.5">
@@ -307,7 +307,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
                       <div className="flex items-center gap-2 text-slate-500 text-xs font-medium">
-                        <Briefcase className="w-4 h-4 text-indigo-500" />
+                        <Briefcase className="w-4 h-4 text-blue-500" />
                         Contratos Ganados
                       </div>
                       <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
@@ -345,7 +345,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                   {competitorData.topEntities.length > 0 && (
                     <div className="space-y-3">
                       <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-indigo-500" />
+                        <Building2 className="w-4 h-4 text-blue-500" />
                         Top Entidades Estatales Compradoras (¿Con quién contrata tu rival?)
                       </h4>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -375,7 +375,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                   <div className="space-y-3">
                     <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center justify-between">
                       <span className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-indigo-500" />
+                        <FileText className="w-4 h-4 text-blue-500" />
                         Historial de Contratos Adjudicados
                       </span>
                       <span className="text-xs text-slate-500 font-normal">
@@ -432,7 +432,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                                     href={c.processUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline font-semibold"
                                   >
                                     Ver <ArrowUpRight className="w-3 h-3" />
                                   </a>
@@ -470,13 +470,13 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                       value={entityQuery}
                       onChange={(e) => setEntityQuery(e.target.value)}
                       placeholder="Busca cualquier entidad del Estado (ej: IDU, SENA, Alcaldía de Medellín, Ministerio de TIC)..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={isSearchingEntity}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm disabled:opacity-50 transition-colors"
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm disabled:opacity-50 transition-colors"
                   >
                     {isSearchingEntity ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -498,9 +498,9 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
               {entityData && (
                 <div className="space-y-6">
                   {/* Encabezado entidad */}
-                  <div className="p-5 bg-gradient-to-br from-indigo-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="p-5 bg-gradient-to-br from-blue-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-slate-900/80 dark:to-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                      <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">
+                      <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
                         Entidad Estatal Contratante
                       </span>
                       <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100 mt-0.5">
@@ -512,7 +512,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                     </div>
                     <div className="text-right">
                       <span className="text-xs text-slate-500 dark:text-slate-400 block">Presupuesto Adjudicado Muestreado</span>
-                      <span className="text-2xl font-extrabold text-indigo-600 dark:text-indigo-400">
+                      <span className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">
                         {formatMoney(entityData.totalAwardedCop)}
                       </span>
                     </div>
@@ -553,7 +553,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                                 setCompetitorQuery(c.name);
                                 handleSearchCompetitor(c.name);
                               }}
-                              className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                              className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
                             >
                               Ver perfil →
                             </button>
@@ -573,16 +573,16 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
           {activeTab === 'paa' && (
             <div className="space-y-6">
               {/* Explicación y filtros */}
-              <div className="p-4 bg-indigo-50/70 dark:bg-indigo-950/30 rounded-xl border border-indigo-200 dark:border-indigo-800/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="p-4 bg-blue-50/70 dark:bg-blue-950/30 rounded-xl border border-blue-200 dark:border-blue-800/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-start gap-3">
-                  <div className="p-2 bg-indigo-600 text-white rounded-lg mt-0.5">
+                  <div className="p-2 bg-blue-600 text-white rounded-lg mt-0.5">
                     <Zap className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-indigo-950 dark:text-indigo-200">
+                    <h4 className="text-sm font-bold text-blue-950 dark:text-blue-200">
                       Oportunidades Tempranas del Plan Anual de Adquisiciones (PAA)
                     </h4>
-                    <p className="text-xs text-indigo-800 dark:text-indigo-300 mt-0.5">
+                    <p className="text-xs text-blue-800 dark:text-blue-300 mt-0.5">
                       Las entidades del Estado publican qué van a comprar con meses de anticipación. Te permite preparar tu RUP, estados financieros y alianzas antes de que se abra el pliego.
                     </p>
                   </div>
@@ -590,7 +590,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                 <button
                   onClick={handleLoadPaa}
                   disabled={isLoadingPaa}
-                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors flex-shrink-0"
+                  className="px-4 py-2 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm hover:bg-blue-50 dark:hover:bg-slate-700 transition-colors flex-shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPaa ? 'animate-spin' : ''}`} />
                   Actualizar PAA
@@ -635,7 +635,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
                   .map((item) => (
                     <div
                       key={item.id}
-                      className="p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      className="p-4 bg-white dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
                     >
                       <div className="space-y-1.5 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -658,7 +658,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
 
                         <div className="flex items-center gap-4 text-xs text-slate-500 pt-1">
                           <span className="flex items-center gap-1">
-                            <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                            <Clock className="w-3.5 h-3.5 text-blue-500" />
                             Mes proyectado: <strong>{item.estimatedMonth}</strong>
                           </span>
                           <span>•</span>
@@ -685,7 +685,7 @@ export const MarketIntelligenceModal: React.FC<MarketIntelligenceModalProps> = (
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4 text-indigo-500" />
+            <ShieldAlert className="w-4 h-4 text-blue-500" />
             <span>Información originada directamente de Datos Abiertos de Colombia Compra Eficiente (SECOP II).</span>
           </div>
           <button

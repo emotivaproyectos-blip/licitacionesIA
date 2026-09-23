@@ -31,6 +31,12 @@ class SECOPTenderDTO(BaseModel):
     unspsc_codes: List[str] = []
     process_url: Optional[str] = None
     source_platform: str = "SECOP_II"
+    modalidad_de_contratacion: Optional[str] = None
+    is_minima_cuantia: bool = False
+    is_time_unspecified: bool = False
+    estado_resumen: Optional[str] = None
+    requires_secop_verification: bool = False
+    verification_notes: Optional[str] = None
 
 def resolve_secop_url(
     platform: str,
@@ -77,21 +83,27 @@ class SECOPDatosAbiertosClient:
         query: Optional[str] = None,
         status: Optional[str] = None,
         platform: str = "all",
-        only_active: bool = True
+        only_active: bool = True,
+        modality: Optional[str] = None
     ) -> List[SECOPTenderDTO]:
         """
         Consulta licitaciones públicas ACTIVAS y EN FASE DE PRESENTACIÓN DE OFERTAS en Colombia Compra Eficiente (SECOP I y II).
+        Soporta filtro específico para 'minima_cuantia' sobre el dataset p6dx-8zbt.
         """
         async with httpx.AsyncClient(timeout=25.0) as client:
             try:
                 results: List[SECOPTenderDTO] = []
+                if modality and ("minima" in modality.lower()):
+                    # Mínima cuantía se consulta directamente sobre SECOP II
+                    return await cls._fetch_secop2(client, limit, department, query, modality=modality)
+
                 if platform == "SECOP_I":
                     results = await cls._fetch_secop1(client, limit, department, query)
                 elif platform == "SECOP_II":
-                    results = await cls._fetch_secop2(client, limit, department, query)
+                    results = await cls._fetch_secop2(client, limit, department, query, modality=modality)
                 else:
                     s1_task = cls._fetch_secop1(client, limit // 2 + 5, department, query)
-                    s2_task = cls._fetch_secop2(client, limit, department, query)
+                    s2_task = cls._fetch_secop2(client, limit, department, query, modality=modality)
                     res1, res2 = await asyncio.gather(s1_task, s2_task, return_exceptions=True)
                     if isinstance(res2, list):
                         results.extend(res2)
@@ -216,7 +228,8 @@ class SECOPDatosAbiertosClient:
         client: httpx.AsyncClient, 
         limit: int, 
         department: Optional[str], 
-        query: Optional[str]
+        query: Optional[str],
+        modality: Optional[str] = None
     ) -> List[SECOPTenderDTO]:
         now_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.000")
         where_clauses = [
@@ -225,21 +238,32 @@ class SECOPDatosAbiertosClient:
             "estado_del_procedimiento in ('Publicado', 'En proceso', 'Presentación de ofertas', 'Abierto')",
             "fecha_de_publicacion_del is not null"
         ]
+
+        if modality and ("minima" in modality.lower()):
+            where_clauses.append("modalidad_de_contratacion in ('Mínima cuantía', 'Minima cuantia', 'Mínima Cuantía')")
+
         if department and isinstance(department, str) and department.strip():
             where_clauses.append(f"departamento_entidad='{department.strip()}'")
 
         params: Dict[str, Any] = {
             "$limit": limit,
             "$where": " AND ".join(where_clauses),
-            "$order": "fecha_de_publicacion_del DESC"
+            "$order": "fecha_de_publicacion_del DESC, id_del_proceso DESC"
         }
         if query and isinstance(query, str) and query.strip():
             params["$q"] = query.strip()
 
+        headers: Dict[str, str] = {}
+        socrata_token = os.getenv("SOCRATA_APP_TOKEN")
+        if socrata_token:
+            headers["X-App-Token"] = socrata_token.strip()
+
         try:
-            response = await client.get(cls.BASE_URL_SECOP_II, params=params)
+            response = await client.get(cls.BASE_URL_SECOP_II, params=params, headers=headers)
             if response.status_code == 200:
                 return cls._parse_secop2_response(response.json())
+            elif response.status_code == 429:
+                print(f"[SECOP II Warning] SODA Rate limit (HTTP 429). Utilizando respaldo.")
         except Exception as e:
             print(f"[SECOP II Warning] Error conectando a datos.gov.co: {e}")
         return []
@@ -268,6 +292,11 @@ class SECOPDatosAbiertosClient:
             if not pub_date:
                 continue
 
+            # Detección de precisión de hora de cierre: si viene como medianoche 00:00:00
+            is_time_unspecified = False
+            if "00:00:00" in closing_date:
+                is_time_unspecified = True
+
             secop_id = item.get("id_del_proceso") or item.get("referencia_del_proceso") or "CO1.REQ.SODA"
             process_num = item.get("referencia_del_proceso") or secop_id
             
@@ -279,7 +308,7 @@ class SECOPDatosAbiertosClient:
                 val_cop = 0.0
 
             if val_cop <= 0:
-                val_cop = 150000000.0
+                val_cop = 25000000.0
 
             val_smmlv = round(val_cop / SMMLV_2026, 1)
 
@@ -310,12 +339,24 @@ class SECOPDatosAbiertosClient:
             process_url = resolve_secop_url("SECOP_II", item.get("urlproceso"), process_num, secop_id)
 
             status_desc = item.get("fase") or item.get("estado_del_procedimiento") or "Presentación de ofertas"
+            estado_resumen = item.get("estado_resumen") or status_desc
             entity = (
                 item.get("nombre_de_la_entidad") 
                 or item.get("entidad") 
                 or item.get("nombre_entidad") 
                 or "Entidad Pública de Colombia"
             )
+
+            mod_contratacion = item.get("modalidad_de_contratacion") or "Mínima cuantía"
+            is_mc = "mínima" in mod_contratacion.lower() or "minima" in mod_contratacion.lower()
+
+            # Validación de ambigüedad
+            requires_verification = is_time_unspecified or estado_resumen == "No Definido"
+            v_notes = []
+            if is_time_unspecified:
+                v_notes.append("Hora de cierre pendiente de verificar en SECOP.")
+            if estado_resumen == "No Definido":
+                v_notes.append("Estado resumen pendiente de consolidación oficial.")
 
             tenders.append(SECOPTenderDTO(
                 id=secop_id,
@@ -325,17 +366,23 @@ class SECOPDatosAbiertosClient:
                 entity_nit=item.get("nit_entidad") or item.get("nit_de_la_entidad"),
                 title=title,
                 description=desc,
-                contract_type=item.get("tipo_de_contrato") or "Prestación de servicios",
+                contract_type=mod_contratacion,
                 budget_cop=val_cop,
                 budget_smmlv=val_smmlv,
                 department=item.get("departamento_entidad") or "Colombia",
-                city=item.get("ciudad_entidad") or "Bogotá D.C.",
+                city=item.get("ciudad_entidad") or "Colombia",
                 publication_date=pub_date,
                 closing_date=closing_date,
                 status=status_desc,
                 unspsc_codes=[unspsc_clean],
                 process_url=process_url,
-                source_platform="SECOP_II"
+                source_platform="SECOP_II",
+                modalidad_de_contratacion=mod_contratacion,
+                is_minima_cuantia=is_mc,
+                is_time_unspecified=is_time_unspecified,
+                estado_resumen=estado_resumen,
+                requires_secop_verification=requires_verification,
+                verification_notes=" ".join(v_notes) if v_notes else None
             ))
         return tenders
 
