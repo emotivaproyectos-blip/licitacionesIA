@@ -894,7 +894,7 @@ export function TenderDetailDrawer({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => onOpenConsortium ? onOpenConsortium() : onTriggerPlanGate('advanced_consortium')}
+                          onClick={() => onTriggerPlanGate('advanced_consortium')}
                           className="mt-1 text-xs font-semibold text-purple-600 dark:text-purple-400 hover:underline flex items-center gap-1.5 cursor-pointer"
                         >
                           <Sparkles className="w-3.5 h-3.5 text-purple-500" />
@@ -1092,16 +1092,32 @@ export function TenderDetailDrawer({
                       <Users className="w-4 h-4" />
                     </div>
                     <div>
-                      <p className="font-bold text-[#0B1739] dark:text-white">Simulador de Consorcios y Uniones Temporales</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-[#0B1739] dark:text-white">Simulador de Consorcios y Uniones Temporales</p>
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 rounded-full border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+                          <Sparkles className="w-2.5 h-2.5" /> Enterprise
+                        </span>
+                      </div>
                       <p className="text-[11px] text-slate-500 dark:text-slate-400">Combina la capacidad financiera y técnica de tu empresa con un socio para habilitar este proceso.</p>
                     </div>
                   </div>
                   <button
                     type="button"
-                    onClick={onOpenConsortium}
-                    className="px-3.5 py-1.5 bg-[#0B5FFF] hover:bg-[#084BD6] text-white rounded-lg text-xs font-semibold shadow-xs"
+                    onClick={() => {
+                      if (!planLimits.hasAdvancedConsortium) {
+                        onTriggerPlanGate('advanced_consortium');
+                      } else {
+                        onOpenConsortium();
+                      }
+                    }}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 ${
+                      planLimits.hasAdvancedConsortium
+                        ? 'bg-[#0B5FFF] hover:bg-[#084BD6] text-white'
+                        : 'bg-purple-600 hover:bg-purple-700 text-white'
+                    }`}
                   >
-                    Abrir Simulador
+                    {!planLimits.hasAdvancedConsortium && <Lock className="w-3.5 h-3.5" />}
+                    <span>{planLimits.hasAdvancedConsortium ? 'Abrir Simulador' : 'Desbloquear con Enterprise'}</span>
                   </button>
                 </div>
 

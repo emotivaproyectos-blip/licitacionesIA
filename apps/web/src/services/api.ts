@@ -242,8 +242,39 @@ export function cleanUnspscCode(raw?: any, contextText?: string): string {
   return '80101500';
 }
 
+interface ClientCacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const clientTendersCache = new Map<string, ClientCacheEntry<TenderDTO[]>>();
+const CLIENT_CACHE_TTL_MS = 60 * 1000; // 60 segundos de validez en memoria
+
+export function getClientCachedTenders(key: string): TenderDTO[] | null {
+  const entry = clientTendersCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CLIENT_CACHE_TTL_MS) {
+    clientTendersCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+export function setClientCachedTenders(key: string, data: TenderDTO[]): void {
+  if (clientTendersCache.size >= 50) {
+    const oldestKey = clientTendersCache.keys().next().value;
+    if (oldestKey) clientTendersCache.delete(oldestKey);
+  }
+  clientTendersCache.set(key, { data, timestamp: Date.now() });
+}
+
+export function clearClientTendersCache(): void {
+  clientTendersCache.clear();
+}
+
 /**
  * Consulta licitaciones públicas en fase de ofertas con fecha de cierre en el futuro
+ * Cuenta con caché del lado del cliente (< 1ms) y consulta al backend blindado con Circuit Breaker.
  */
 export async function fetchLiveTenders(
   query?: string, 
@@ -252,32 +283,38 @@ export async function fetchLiveTenders(
   platform: 'all' | 'SECOP_I' | 'SECOP_II' = 'all',
   modality?: 'all' | 'minima_cuantia'
 ): Promise<TenderDTO[]> {
-  // 1. Intentar consultar el backend de FastAPI en Render para SECOP II
-  if (platform === 'SECOP_II' || modality === 'minima_cuantia') {
-    try {
-      const params = new URLSearchParams();
-      params.set('limit', String(limit));
-      params.set('platform', platform);
-      if (modality) params.set('modality', modality);
-      if (query && query.trim()) params.set('q', query.trim());
-      if (department && department.trim()) params.set('department', department.trim());
+  const cacheKey = `tenders:${platform}:${modality || 'all'}:${department?.trim().toLowerCase() || 'all'}:${query?.trim().toLowerCase() || 'all'}:${limit}`;
+  const localCached = getClientCachedTenders(cacheKey);
+  if (localCached && localCached.length > 0) {
+    return localCached;
+  }
 
-      const res = await fetch(`${API_BASE_URL}/api/v1/secop/live?${params.toString()}`, {
-        signal: AbortSignal.timeout(6000)
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const cleanData = data.filter(d => !String(d.process_number || '').includes('RAD-SECOP1') && !String(d.id || '').includes('RAD_TI'));
-          const normalized = normalizeAndFilterActive(cleanData);
-          if (normalized.length > 0) {
-            return normalized.slice(0, limit);
-          }
+  // 1. Intentar consultar el backend de FastAPI (con caché híbrida L1/L2, GZip y Circuit Breaker)
+  try {
+    const params = new URLSearchParams();
+    params.set('limit', String(limit));
+    params.set('platform', platform);
+    if (modality) params.set('modality', modality);
+    if (query && query.trim()) params.set('q', query.trim());
+    if (department && department.trim()) params.set('department', department.trim());
+
+    const res = await fetch(`${API_BASE_URL}/api/v1/tenders?${params.toString()}`, {
+      signal: AbortSignal.timeout(4500)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const cleanData = data.filter(d => !String(d.process_number || '').includes('RAD-SECOP1') && !String(d.id || '').includes('RAD_TI'));
+        const normalized = normalizeAndFilterActive(cleanData);
+        if (normalized.length > 0) {
+          const finalResult = normalized.slice(0, limit);
+          setClientCachedTenders(cacheKey, finalResult);
+          return finalResult;
         }
       }
-    } catch (backendError) {
-      console.warn('[LicitIA API] Backend timeout o cold-start, conectando con SODA...', backendError);
     }
+  } catch (backendError) {
+    console.warn('[LicitIA API] Backend timeout o fallback directo, conectando con respaldo SODA...', backendError);
   }
 
   // 2. Conexión directa a Datos Abiertos de Colombia Compra Eficiente (SODA REST API)
@@ -363,11 +400,15 @@ export async function fetchLiveTenders(
   });
 
   if (activeResults.length > 0) {
-    return activeResults.slice(0, limit);
+    const finalResult = activeResults.slice(0, limit);
+    setClientCachedTenders(cacheKey, finalResult);
+    return finalResult;
   }
 
   // 3. Fallback oficial con licitaciones vigentes clasificadas estrictamente
-  return getFallbackOfficialTenders(query, platform);
+  const fallback = getFallbackOfficialTenders(query, platform);
+  setClientCachedTenders(cacheKey, fallback);
+  return fallback;
 }
 
 function parseRawSodaSecop1(rawData: any[]): TenderDTO[] {

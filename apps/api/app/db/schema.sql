@@ -421,3 +421,56 @@ CREATE TRIGGER trg_update_company_experiences BEFORE UPDATE ON public.company_ex
 CREATE TRIGGER trg_update_tenders BEFORE UPDATE ON public.tenders FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER trg_update_tender_requirements BEFORE UPDATE ON public.tender_requirements FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER trg_update_compatibility_evaluations BEFORE UPDATE ON public.compatibility_evaluations FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- -----------------------------------------------------------------------------
+-- 11. TABLA: SUBSCRIPTIONS (SUSCRIPCIONES SAAS DE LAS ORGANIZACIONES)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.subscriptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    plan_id VARCHAR(50) NOT NULL DEFAULT 'free', -- 'free', 'pyme', 'enterprise'
+    billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly', -- 'monthly', 'yearly'
+    status VARCHAR(50) NOT NULL DEFAULT 'active', -- 'active', 'past_due', 'canceled', 'trialing'
+    current_period_start TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    current_period_end TIMESTAMPTZ NOT NULL,
+    payment_method VARCHAR(50), -- 'PSE', 'CARD', 'NEQUI', 'BANCOLOMBIA'
+    wompi_transaction_id VARCHAR(100),
+    wompi_reference VARCHAR(150),
+    cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    CONSTRAINT uq_subscriptions_organization UNIQUE (organization_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_org ON public.subscriptions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON public.subscriptions(status);
+CREATE TRIGGER trg_update_subscriptions BEFORE UPDATE ON public.subscriptions FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- -----------------------------------------------------------------------------
+-- 12. TABLA: PAYMENT_TRANSACTIONS (HISTORIAL AUDITABLE DE PAGOS WOMPI)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.payment_transactions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID REFERENCES public.organizations(id) ON DELETE SET NULL,
+    reference VARCHAR(150) NOT NULL,
+    wompi_id VARCHAR(100),
+    amount_in_cents BIGINT NOT NULL,
+    amount_cop NUMERIC(18, 2) NOT NULL,
+    currency VARCHAR(10) NOT NULL DEFAULT 'COP',
+    status VARCHAR(50) NOT NULL, -- 'APPROVED', 'DECLINED', 'VOIDED', 'PENDING', 'ERROR'
+    payment_method_type VARCHAR(50),
+    plan_id VARCHAR(50) NOT NULL,
+    billing_cycle VARCHAR(20) NOT NULL DEFAULT 'monthly',
+    customer_email VARCHAR(255),
+    customer_data JSONB DEFAULT '{}'::jsonb,
+    raw_event JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_org ON public.payment_transactions(organization_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_ref ON public.payment_transactions(reference);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_wompi_id ON public.payment_transactions(wompi_id);
+CREATE TRIGGER trg_update_payment_transactions BEFORE UPDATE ON public.payment_transactions FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+

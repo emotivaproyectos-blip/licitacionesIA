@@ -64,6 +64,7 @@ interface ConsortiumSimulatorModalProps {
   tender: TenderData;
   company: CompanyData;
   onApplyToDossier?: (consortiumSummary: any) => void;
+  hasAdvancedConsortium?: boolean;
 }
 
 export const ConsortiumSimulatorModal: React.FC<ConsortiumSimulatorModalProps> = ({
@@ -71,8 +72,11 @@ export const ConsortiumSimulatorModal: React.FC<ConsortiumSimulatorModalProps> =
   onClose,
   tender,
   company,
-  onApplyToDossier
+  onApplyToDossier,
+  hasAdvancedConsortium = true
 }) => {
+  if (!isOpen || !hasAdvancedConsortium) return null;
+
   // Configuración del Consorcio
   const [legalFigure, setLegalFigure] = useState<'consorcio' | 'union_temporal'>('consorcio');
   const [companyShare, setCompanyShare] = useState<number>(60);

@@ -75,6 +75,12 @@ El entorno de desarrollo de infraestructura está en `docker/docker-compose.yml`
 | `GET /` | Salud y metadatos del servicio. | Funcional. |
 | `GET /api/v1/tenders` | Lista licitaciones; acepta `status`, `min_budget` y `department`. | Devuelve dos registros de demostración; los filtros aún no se aplican. |
 | `POST /api/v1/tenders/evaluate` | Evalúa compatibilidad. Recibe `organization_id`, `tender_id`, `model_provider` y opcionalmente `model_name`. | Ejecuta el motor con perfil y requisitos de demostración. |
+| `GET /api/v1/payments/wompi/config` | Configuración pública de Wompi (llave pública, entorno sandbox/producción). | Funcional. |
+| `POST /api/v1/payments/wompi/integrity-signature` | Genera la firma SHA-256 de integridad para el Widget oficial de Wompi. | Funcional. |
+| `POST /api/v1/payments/wompi/webhook` | Webhook oficial de Wompi; valida checksum de eventos y activa suscripciones en la BD. | Funcional. |
+| `GET /api/v1/payments/subscription/{org_id}` | Consulta la suscripción activa de una organización en PostgreSQL / Supabase. | Funcional. |
+| `POST /api/v1/payments/wompi/test-simulate-approval` | Utilidad de pruebas locales en Sandbox para simular la confirmación de pago de Wompi. | Funcional. |
+
 
 ## Lógica de compatibilidad actual
 

@@ -12,6 +12,9 @@ from datetime import datetime
 import httpx
 from pydantic import BaseModel
 
+from app.core.circuit_breaker import secop_circuit_breaker
+from app.core.cache import cache_manager
+
 class SECOPTenderDTO(BaseModel):
     id: Optional[str] = None
     secop_id: str
@@ -87,11 +90,13 @@ class SECOPDatosAbiertosClient:
         modality: Optional[str] = None
     ) -> List[SECOPTenderDTO]:
         """
-        Consulta licitaciones públicas ACTIVAS y EN FASE DE PRESENTACIÓN DE OFERTAS en Colombia Compra Eficiente (SECOP I y II).
-        Soporta filtro específico para 'minima_cuantia' sobre el dataset p6dx-8zbt.
+        Consulta licitaciones públicas ACTIVAS con protección de Circuit Breaker y Snapshot de Alta Disponibilidad.
+        - Timeout estricto de 4.5s para evitar congelamiento de workers.
+        - Si datos.gov.co falla consecutivamente, el Circuit Breaker entra en estado OPEN y retorna
+          instantáneamente (< 2ms) el último snapshot real o el respaldo clasificado.
         """
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            try:
+        async def _do_fetch() -> List[SECOPTenderDTO]:
+            async with httpx.AsyncClient(timeout=4.5) as client:
                 results: List[SECOPTenderDTO] = []
                 if modality and ("minima" in modality.lower()):
                     # Mínima cuantía se consulta directamente sobre SECOP II
@@ -111,11 +116,45 @@ class SECOPDatosAbiertosClient:
                         results.extend(res1)
 
                 if results:
+                    # Guardar snapshot de alta disponibilidad en caché (válido por 24 horas)
+                    try:
+                        serialized = [t.model_dump() for t in results[:limit]]
+                        await cache_manager.set("secop:latest_snapshot", serialized, ttl_seconds=86400)
+                    except Exception:
+                        pass
                     return results[:limit]
-            except Exception as e:
-                print(f"[SECOP API Error] {str(e)}")
+                return []
 
-        return cls._get_fallback_tenders(query, platform=platform)
+        async def _do_fallback() -> List[SECOPTenderDTO]:
+            # 1. Intentar recuperar snapshot real previo
+            try:
+                cached_snapshot = await cache_manager.get("secop:latest_snapshot")
+                if cached_snapshot and isinstance(cached_snapshot, list) and len(cached_snapshot) > 0:
+                    tenders: List[SECOPTenderDTO] = []
+                    for item in cached_snapshot:
+                        t_dto = SECOPTenderDTO(**item)
+                        t_dto.requires_secop_verification = True
+                        t_dto.verification_notes = "Servido en Modo Alta Disponibilidad (Snapshot Resguardado)"
+                        tenders.append(t_dto)
+                    
+                    filtered = tenders
+                    if department and department.strip():
+                        filtered = [t for t in filtered if department.lower() in t.department.lower()]
+                    if query and query.strip():
+                        q_lower = query.lower()
+                        filtered = [t for t in filtered if q_lower in t.title.lower() or q_lower in (t.description or "").lower()]
+                    
+                    if filtered:
+                        return filtered[:limit]
+                    return tenders[:limit]
+            except Exception:
+                pass
+
+            # 2. Respaldo oficial clasificado
+            return cls._get_fallback_tenders(query, platform=platform)
+
+        # Ejecutar a través del Circuit Breaker
+        return await secop_circuit_breaker.call(_do_fetch, _do_fallback)
 
     @classmethod
     async def _fetch_secop1(

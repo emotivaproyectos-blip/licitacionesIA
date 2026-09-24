@@ -13,7 +13,8 @@ import {
   Headphones, 
   ChevronRight,
   Sun,
-  Moon
+  Moon,
+  Lock
 } from 'lucide-react';
 import emotivaLogo from '../../assets/logo.webp';
 
@@ -32,6 +33,8 @@ export interface DashboardSidebarProps {
   onOpenMarketIntelligence: () => void;
   onOpenEmailAlerts: () => void;
   onOpenConsortiumSimulator: () => void;
+  onOpenSupportModal?: () => void;
+  hasAdvancedConsortium?: boolean;
   isDarkMode: boolean;
   onToggleTheme: () => void;
 }
@@ -51,6 +54,8 @@ export function DashboardSidebar({
   onOpenMarketIntelligence,
   onOpenEmailAlerts,
   onOpenConsortiumSimulator,
+  onOpenSupportModal,
+  hasAdvancedConsortium = false,
   isDarkMode,
   onToggleTheme
 }: DashboardSidebarProps) {
@@ -112,7 +117,8 @@ export function DashboardSidebar({
       label: 'Inteligencia IA',
       icon: Sparkles,
       action: onOpenConsortiumSimulator,
-      active: activeNav === 'inteligencia'
+      active: activeNav === 'inteligencia',
+      tag: !hasAdvancedConsortium ? 'Enterprise' : undefined
     },
     {
       key: 'reportes',
@@ -190,6 +196,13 @@ export function DashboardSidebar({
                   <span className="truncate">{item.label}</span>
                 </div>
 
+                {item.tag && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/60 dark:border-purple-800/60 flex items-center gap-1">
+                    <Lock className="w-2.5 h-2.5" />
+                    <span>{item.tag}</span>
+                  </span>
+                )}
+
                 {item.badge !== undefined && (
                   <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                     isActive
@@ -209,24 +222,30 @@ export function DashboardSidebar({
       <div className="flex flex-col gap-3 pt-3 border-t border-[#E4EAF3] dark:border-slate-800">
         
         {/* BLOQUE CENTRO DE SOPORTE */}
-        <a
-          href="mailto:soporte@licitia.co?subject=Consulta%20Soporte%20Emotiva%20LicitIA"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#F5F8FC] hover:bg-[#EDF4FF] dark:bg-slate-800/50 dark:hover:bg-slate-800 text-[#0B1739] dark:text-slate-200 border border-[#E4EAF3] dark:border-slate-700/60 transition-colors group cursor-pointer"
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenSupportModal) {
+              onOpenSupportModal();
+            } else {
+              window.open('mailto:emotivaproyectos@gmail.com?subject=Consulta%20Soporte%20Emotiva%20LicitIA', '_blank');
+            }
+          }}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#F5F8FC] hover:bg-[#EDF4FF] dark:bg-slate-800/50 dark:hover:bg-slate-800 text-[#0B1739] dark:text-slate-200 border border-[#E4EAF3] dark:border-slate-700/60 transition-colors group cursor-pointer text-left"
+          title="Abrir Centro de Ayuda & Soporte (emotivaproyectos@gmail.com)"
         >
-          <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-950 text-[#0B5FFF] dark:text-blue-400 flex items-center justify-center flex-shrink-0">
+          <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-950 text-[#0B5FFF] dark:text-blue-400 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
             <Headphones className="w-3.5 h-3.5" />
           </div>
-          <div className="flex flex-col text-left">
+          <div className="flex flex-col text-left min-w-0">
             <span className="text-[11px] font-semibold text-[#0B1739] dark:text-white leading-tight">
               ¿Necesitas ayuda?
             </span>
-            <span className="text-[10px] text-[#64748B] dark:text-slate-400">
-              Centro de soporte
+            <span className="text-[10px] text-[#64748B] dark:text-slate-400 truncate">
+              emotivaproyectos@gmail.com
             </span>
           </div>
-        </a>
+        </button>
 
         {/* TARJETA DE USUARIO / EMPRESA CON PLAN */}
         <div 

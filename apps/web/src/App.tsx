@@ -74,6 +74,7 @@ import { ConsortiumSimulatorModal } from './components/ConsortiumSimulatorModal'
 import { MarketIntelligenceModal } from './components/MarketIntelligenceModal';
 import { CitationViewerModal, RequirementCitation } from './components/CitationViewerModal';
 import { EmailAlertsModal } from './components/EmailAlertsModal';
+import { SupportHelpModal } from './components/SupportHelpModal';
 import { SimilarTendersDeck } from './components/SimilarTendersDeck';
 import { DashboardSidebar } from './components/dashboard/DashboardSidebar';
 import { DashboardTopBar } from './components/dashboard/DashboardTopBar';
@@ -105,6 +106,7 @@ import {
   PLAN_LIMITS_MAP, 
   getStoredPlanId, 
   storePlanId, 
+  syncPlanWithServer,
   getMonthlyEvaluationsUsage, 
   recordTenderEvaluation, 
   canEvaluateTender 
@@ -121,7 +123,8 @@ import {
   fetchLiveTenders, 
   queryTenderAssistant, 
   formatFriendlyDate, 
-  resolveSecopUrl 
+  resolveSecopUrl,
+  clearClientTendersCache
 } from './services/api';
 import { 
   formatProcurementTitle, 
@@ -324,7 +327,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState<'login' | 'signup' | 'magic'>('login');
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
-  const [userSession, setUserSession] = useState<{ email: string; companyName?: string } | null>(null);
+  const [userSession, setUserSession] = useState<{ email: string; companyName?: string; organizationId?: string } | null>(null);
 
   // ESTADO MONETIZACIÓN SAAS Y PLANES CON RESTRICCIONES
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
@@ -356,6 +359,7 @@ export default function App() {
   const [activeCitation, setActiveCitation] = useState<RequirementCitation | null>(null);
   const [isCitationModalOpen, setIsCitationModalOpen] = useState(false);
   const [isEmailAlertsOpen, setIsEmailAlertsOpen] = useState(false);
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [vaultDocs, setVaultDocs] = useState<VaultDocument[]>(() => loadCompanyVault(company.nit, company.name));
   const [applicationsHistory, setApplicationsHistory] = useState<ApplicationRecord[]>(() => getApplicationsHistory(company.nit));
   const [submittedTenders, setSubmittedTenders] = useState<Record<string, { radicadoCode: string; submittedAt: string }>>({});
@@ -370,6 +374,14 @@ export default function App() {
     const loadedVault = loadCompanyVault(company.nit, company.name);
     setVaultDocs(loadedVault);
   }, [company.nit, company.name]);
+
+  // Salvaguarda: Asegurar que el simulador de consorcios nunca se abra si el usuario no tiene plan Enterprise
+  useEffect(() => {
+    if (isConsortiumModalOpen && !planLimits.hasAdvancedConsortium) {
+      setIsConsortiumModalOpen(false);
+      triggerPlanGate('advanced_consortium');
+    }
+  }, [isConsortiumModalOpen, planLimits.hasAdvancedConsortium]);
 
   // Sincronizar licitaciones guardadas e intereses del usuario
   useEffect(() => {
@@ -405,7 +417,17 @@ export default function App() {
         const compName = profile?.organization?.name || meta.company_name || meta.full_name || meta.name || u.email?.split('@')[0];
         const compNit = profile?.organization?.nit || meta.nit || '901.452.890-1';
 
-        setUserSession({ email: u.email || '', companyName: compName });
+        const orgId = profile?.organization_id;
+        setUserSession({ email: u.email || '', companyName: compName, organizationId: orgId });
+
+        if (orgId) {
+          syncPlanWithServer(orgId).then((activePlan) => {
+            if (activePlan) {
+              setCurrentPlanId(activePlan);
+            }
+          });
+        }
+
         setCompany(prev => ({
           ...prev,
           name: compName || prev.name,
@@ -1219,27 +1241,21 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
     setFilterTab(tab);
   };
 
-  // Manejo de cambio de plataforma con filtrado y sincronización inmediata
+  // Manejo de cambio de plataforma con filtrado limpio (el useEffect ejecuta la carga sin duplicados)
   const handlePlatformChange = (plat: 'all' | 'SECOP_I' | 'SECOP_II') => {
     if ((plat === 'SECOP_I' || plat === 'all') && !planLimits.hasRealtimeIngestion) {
       triggerPlanGate('realtime_secop');
       return;
     }
     setPlatformFilter(plat);
-    loadOfficialTenders(searchTerm || undefined, false, plat, modalityFilter);
   };
 
-  // Manejo de cambio de modalidad (Todas vs Mínima Cuantía vs Menor Cuantía vs Licitación Pública vs Guardadas)
+  // Manejo de cambio de modalidad (el useEffect ejecuta la carga sin duplicados)
   const handleModalityChange = (mod: ModalityOption) => {
     setModalityFilter(mod);
-    if (mod === 'saved') {
-      return;
-    }
-    const targetPlat = mod === 'minima_cuantia' ? 'SECOP_II' : platformFilter;
     if (mod === 'minima_cuantia' && platformFilter === 'SECOP_I') {
       setPlatformFilter('SECOP_II');
     }
-    loadOfficialTenders(searchTerm || undefined, false, targetPlat, mod);
   };
 
   const formLiquidity = formCompany.current_liabilities > 0 
@@ -1407,6 +1423,9 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           onClose={() => setIsSubModalOpen(false)}
           currentPlanId={currentPlanId}
           userEmail={userSession?.email}
+          organizationId={userSession?.organizationId}
+          companyName={company.name}
+          companyNit={company.nit}
           onPlanUpgraded={handlePlanUpgraded}
         />
       </div>
@@ -1445,7 +1464,12 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         onOpenVaultModal={() => setIsCompanyVaultOpen(true)}
         onOpenMarketIntelligence={() => setIsMarketIntelligenceOpen(true)}
         onOpenEmailAlerts={() => setIsEmailAlertsOpen(true)}
+        onOpenSupportModal={() => setIsSupportModalOpen(true)}
         onOpenConsortiumSimulator={() => {
+          if (!planLimits.hasAdvancedConsortium) {
+            triggerPlanGate('advanced_consortium');
+            return;
+          }
           if (selectedTender) {
             setIsConsortiumModalOpen(true);
           } else if (evaluatedTenders.length > 0) {
@@ -1455,6 +1479,7 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
             triggerPlanGate('advanced_consortium');
           }
         }}
+        hasAdvancedConsortium={planLimits.hasAdvancedConsortium}
         isDarkMode={isDarkMode}
         onToggleTheme={toggleTheme}
       />
@@ -1709,7 +1734,13 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         onOpenDossier={() => setIsDossierModalOpen(true)}
         onOpenSubmissionWizard={() => setIsSubmissionWizardOpen(true)}
         onOpenHistory={() => setIsHistoryModalOpen(true)}
-        onOpenConsortium={() => setIsConsortiumModalOpen(true)}
+        onOpenConsortium={() => {
+          if (!planLimits.hasAdvancedConsortium) {
+            triggerPlanGate('advanced_consortium');
+            return;
+          }
+          setIsConsortiumModalOpen(true);
+        }}
         selectedSubmission={selectedSubmission}
         queryHistory={queryHistory}
         queryMessage={queryMessage}
@@ -2134,6 +2165,9 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
         onClose={() => setIsSubModalOpen(false)}
         currentPlanId={currentPlanId}
         userEmail={userSession?.email}
+        organizationId={userSession?.organizationId}
+        companyName={company.name}
+        companyNit={company.nit}
         onPlanUpgraded={handlePlanUpgraded}
       />
 
@@ -2157,12 +2191,13 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
       />
 
       {/* MODAL SIMULADOR Y ESTRUCTURADOR AVANZADO DE CONSORCIOS (PLAN ENTERPRISE) */}
-      {selectedTender && (
+      {selectedTender && planLimits.hasAdvancedConsortium && (
         <ConsortiumSimulatorModal
           isOpen={isConsortiumModalOpen}
           onClose={() => setIsConsortiumModalOpen(false)}
           tender={selectedTender as any}
           company={company}
+          hasAdvancedConsortium={planLimits.hasAdvancedConsortium}
         />
       )}
 
@@ -2208,6 +2243,15 @@ Puedo responder con fundamentación jurídica sobre **requisitos habilitantes, u
           matchedUnspsc: t.experience_compliance.unspsc_matched,
           processUrl: t.process_url || 'https://community.secop.gov.co'
         }))}
+      />
+
+      {/* MODAL CENTRO DE AYUDA & SOPORTE TÉCNICO OFICIAL (EMOTIVAPROYECTOS@GMAIL.COM) */}
+      <SupportHelpModal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        companyName={company.name}
+        companyNit={company.nit}
+        userEmail={company.email || userSession?.email}
       />
 
     </div>

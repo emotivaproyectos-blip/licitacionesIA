@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, X, Loader2, ChevronDown } from 'lucide-react';
+import { Search, Bell, X, Loader2 } from 'lucide-react';
 
 export interface DashboardTopBarProps {
   searchTerm: string;
@@ -90,24 +90,8 @@ export function DashboardTopBar({
         </div>
       </div>
 
-      {/* 2. CONTROLES DERECHOS: PAÍS, ALERTAS Y PERFIL */}
+      {/* 2. CONTROLES DERECHOS: ALERTAS Y PERFIL */}
       <div className="flex items-center gap-3.5 flex-shrink-0">
-        
-        {/* INDICADOR OFICIAL COLOMBIA */}
-        <div 
-          className="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-xl border border-[#E4EAF3] dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-medium text-[#0B1739] dark:text-slate-200 cursor-default select-none shadow-xs"
-          title="Ámbito oficial: Contratación Estatal de la República de Colombia (SECOP I y II)"
-        >
-          {/* Bandera de Colombia en SVG nítido */}
-          <div className="w-4 h-3 rounded-xs overflow-hidden flex flex-col shadow-xs border border-black/10">
-            <div className="bg-[#FCD116] h-1.5 w-full"></div>
-            <div className="bg-[#003893] h-0.75 w-full"></div>
-            <div className="bg-[#CE1126] h-0.75 w-full"></div>
-          </div>
-          <span className="font-semibold text-xs">Colombia</span>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-        </div>
-
         {/* BOTÓN DE NOTIFICACIONES / ALERTAS */}
         <button
           type="button"

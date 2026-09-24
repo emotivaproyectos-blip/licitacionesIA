@@ -139,27 +139,27 @@ export const PlanGateModal: React.FC<PlanGateModalProps> = ({
       ]
     },
     addenda_monitoring_247: {
-      title: 'Monitoreo 24/7 de Adendas y Observaciones SECOP',
+      title: 'Vigilancia Activa 24/7 de Adendas y Observaciones SECOP',
       subtitle: 'Detección inmediata de cambios en fechas, presupuestos o pliegos definitivos con alertas en vivo.',
       requiredPlan: 'enterprise',
       icon: <Radio className="w-6 h-6 text-purple-500" />,
       highlights: [
-        'Alertas 24/7 ante nuevas adendas o respuestas a observaciones',
-        'Recomendaciones avanzadas para Unión Temporal / Consorcios',
-        'Múltiples razones sociales y usuarios ILIMITADOS',
-        'Instancia dedicada de Agentes LangGraph y SLA 99.9%'
+        'Alertas 24/7 inmediatas ante nuevas adendas o respuestas a observaciones',
+        'Simulador Avanzado de Consorcios y Uniones Temporales (Ley 80 / Art. 7)',
+        'Múltiples razones sociales, NITs y usuarios ILIMITADOS',
+        'Soporte corporativo prioritario 24/7 con SLA del 99.9%'
       ]
     },
     advanced_consortium: {
       title: 'Simulador Avanzado de Consorcios y Uniones Temporales',
-      subtitle: 'Calcula los porcentajes de participación ideales para sumar capacidades con socios estratégicos.',
+      subtitle: 'Calcula porcentajes de participación, combina capacidad RUP con socios y genera la Minuta Legal oficial.',
       requiredPlan: 'enterprise',
       icon: <Sparkles className="w-6 h-6 text-purple-500" />,
       highlights: [
-        'Simulación matemática de sumatoria RUP y ratios consorciales',
-        'Recomendación del socio idóneo según la brecha del pliego',
-        'Soporte corporativo prioritario 24/7',
-        'Múltiples empresas y razones sociales ILIMITADAS'
+        'Simulación matemática de sumatoria RUP y ratios consorciales (Ley 80/1993)',
+        'Generación oficial de Minuta Legal de Constitución lista para firma',
+        'Matriz de Habilitación Combinada (SMMLV, Liquidez y Códigos UNSPSC)',
+        'Múltiples razones sociales, NITs y puestos de trabajo ILIMITADOS'
       ]
     },
     multi_users: {

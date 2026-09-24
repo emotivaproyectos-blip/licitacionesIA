@@ -10,22 +10,30 @@
  * 
  * 2. 'pyme': Plan Pyme Contratista ($290.000 COP/mes)
  *    - Evaluaciones de compatibilidad ILIMITADAS
- *    - 3 Usuarios de la empresa
+ *    - 1 Razón Social / Hasta 3 usuarios de equipo
  *    - Ingesta en tiempo real SECOP I, II y Datos Abiertos
- *    - Diagnóstico exacto de brechas ("¿Qué le falta a tu empresa?")
+ *    - Diagnóstico exacto de brechas y Matriz Financiera
+ *    - Checklist automatizado de requisitos habilitantes
  *    - Asistente RAG conversacional sobre pliegos (Gemini 1.5 Pro)
  *    - Generación de Expediente de Postulación en 1 Clic (Anexo N° 1)
+ *    - Radicación Asistida con Comprobante Oficial SECOP
  * 
  * 3. 'enterprise': Plan Enterprise Consorcios ($690.000 COP/mes)
- *    - Todo lo del Plan Pyme Contratista
- *    - Usuarios y razones sociales ILIMITADAS
- *    - Monitoreo 24/7 de adendas y observaciones SECOP
- *    - Recomendaciones avanzadas para Unión Temporal / Consorcio
- *    - Soporte prioritario 24/7 y SLA del 99.9%
- *    - Instancia dedicada de Agentes LangGraph
+ *    - TODO lo del Plan Pyme Contratista
+ *    - Simulador Avanzado de Consorcios y Uniones Temporales (Ley 80 / Art. 7)
+ *    - Generador oficial de Minuta Legal de Constitución lista para firma
+ *    - Matriz de Habilitación Combinada (Suma de SMMLV, Liquidez y UNSPSC)
+ *    - Múltiples Razones Sociales y NITs ILIMITADOS (Holdings y filiales)
+ *    - Usuarios y puestos de trabajo ILIMITADOS sin restricciones
+ *    - Vigilancia Activa 24/7 de Adendas, Modificaciones y Respuestas SECOP
+ *    - Motor IA Prioritario de Auditoría Profunda para pliegos extensos (+300 págs)
+ *    - Soporte Jurídico/Técnico Prioritario 24/7 y SLA 99.9% garantizado
  */
 
+import { fetchOrganizationSubscription } from './payments';
+
 export type PlanId = 'free' | 'pyme' | 'enterprise';
+
 
 export interface PlanLimits {
   id: PlanId;
@@ -123,6 +131,28 @@ export function storePlanId(planId: PlanId): void {
     console.error('Error saving plan:', e);
   }
 }
+
+/**
+ * Sincroniza el plan con la base de datos remota de la organización
+ */
+export async function syncPlanWithServer(organizationId?: string): Promise<PlanId> {
+  if (!organizationId) {
+    return getStoredPlanId();
+  }
+  try {
+    const remote = await fetchOrganizationSubscription(organizationId);
+    if (remote && remote.is_active && ['free', 'pyme', 'enterprise'].includes(remote.plan_id)) {
+      const activePlan = remote.plan_id as PlanId;
+      storePlanId(activePlan);
+      return activePlan;
+    }
+  } catch (e) {
+    console.warn('No fue posible sincronizar el plan con el servidor:', e);
+  }
+  return getStoredPlanId();
+}
+
+
 
 /**
  * Obtiene la clave de mes actual (ej: "2026-08")
